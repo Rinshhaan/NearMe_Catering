@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NearMe | Master Admin</title>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+    <div id="authOverlay">
+        <div class="auth-box">
+            <h2 style="margin-top:0">Security PIN</h2>
+            <input type="password" id="pinInput" maxlength="11" placeholder="••••">
+            <button onclick="checkPin()" class="btn-pub" style="margin-top:20px">Unlock Dashboard</button>
+        </div>
+    </div>
+
+    <div class="admin-container" id="adminMain">
+        <h1>Management Console</h1>
+        
+        <div class="glass-card">
+            <h3 id="formTitle"><i class="fas fa-plus-circle"></i> Create Site Opening</h3>
+            <input type="hidden" id="editId"> <div class="grid-inputs">
+                <input type="text" id="aSitename" placeholder="Auditorium Name">
+                <input type="text" id="aPlace" placeholder="Location">
+                <input type="date" id="aDate">
+                <input type="text" id="aMap" placeholder="Map Embed SRC (https://...)">
+                <input type="text" id="aImg" placeholder="Image URL (e.g. Unsplash link)">
+                <input type="number" id="aWage" placeholder="Wage (e.g. 700)">
+                <input type="number" id="aSlots" placeholder="Total Staff Needed">
+                <input type="text" id="aTime" placeholder="Arrival Time">
+                <input type="text" id="aGuests" placeholder="Guest Count">
+            </div>
+            <textarea id="aReq" placeholder="Requirements (Dress code, etc.)" style="margin-top:15px;"></textarea>
+            
+            <button onclick="publishSite()" id="submitBtn" class="btn-pub">Publish Now</button>
+            <button onclick="cancelEdit()" id="cancelBtn" class="btn-cancel" style="display:none;">Cancel Edit</button>
+        </div>
+
+        <h2>Staff Bookings Master View</h2>
+        <div id="masterViewContainer"></div>
+    </div>
+
+    <script type="module" src="app.js"></script>
+</body>
+</html>
