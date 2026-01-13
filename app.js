@@ -1,7 +1,6 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
-import { getFirestore, collection, addDoc, onSnapshot, query, orderBy, serverTimestamp, doc, updateDoc, deleteDoc } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+import { getFirestore, collection, addDoc, onSnapshot, query, orderBy, doc, updateDoc, deleteDoc } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
 
-// --- Firebase Configuration ---
 const firebaseConfig = {
     apiKey: "AIzaSyCeEYZ52ETdr4WlbBHrANVWMGeunfbS1aw",
     authDomain: "nearmecatering.firebaseapp.com",
@@ -16,242 +15,321 @@ const db = getFirestore(app);
 
 let allSites = [];
 let allBookings = [];
+let currentOpenSiteId = null;
 
-// --- 1. DATA SYNC (Sorted by Date) ---
-// This ensures that the event happening soonest appears first
-onSnapshot(query(collection(db, "sites"), orderBy("aDate", "asc")), (snap) => {
-    allSites = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+// --- UTILITIES ---
+const getToday = () => new Date().toISOString().split('T')[0];
+
+const formatDisplayDate = (dateStr) => {
+    if (!dateStr) return "";
+    const [year, month, day] = dateStr.split('-');
+    return `${day}-${month}-${year}`;
+};
+
+const getCategorizedLabel = (dateStr) => {
+    const today = new Date(getToday());
+    const target = new Date(dateStr);
+    const diff = Math.round((today - target) / (1000 * 3600 * 24));
+    if (diff <= 0) return "Upcoming & Today";
+    if (diff === 1) return "Yesterday";
+    return formatDisplayDate(dateStr); 
+};
+
+const isValidPhone = (p) => /^(?:\+91|91)?[6-9]\d{9}$/.test(p.replace(/\s/g, ""));
+
+const renderMedia = (url) => {
+    if (!url) return `<img src="https://via.placeholder.com/400x200?text=NearMe">`;
+    if (url.includes("googleusercontent.com") || url.includes("maps.google.com") || url.includes("<iframe")) {
+        let src = url;
+        if (url.includes("<iframe")) {
+            const match = url.match(/src="([^"]+)"/);
+            src = match ? match[1] : '';
+        }
+        return `<iframe src="${src}" style="border:0; width:100%; height:100%;" allowfullscreen="" loading="lazy"></iframe>`;
+    }
+    return `<img src="${url}" style="width:100%; height:100%; object-fit:cover;">`;
+};
+
+// --- DATA SYNC ---
+onSnapshot(query(collection(db, "sites"), orderBy("aDate", "desc")), (snap) => {
+    allSites = snap.docs.map(d => ({ id: d.id, ...d.data() }));
     updateUI();
 });
 
 onSnapshot(collection(db, "bookings"), (snap) => {
-    allBookings = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    allBookings = snap.docs.map(d => ({ id: d.id, ...d.data() }));
     updateUI();
+    if (currentOpenSiteId) window.openDrawer(currentOpenSiteId);
 });
 
 function updateUI() {
-    if (document.getElementById('sitesGrid')) renderClientGrid();
-    if (document.getElementById('masterViewContainer')) renderAdminMasterView();
+    if (document.getElementById('sitesGrid')) renderClient();
+    if (document.getElementById('masterViewContainer')) renderAdmin();
 }
 
-// --- 2. CLIENT SIDE: RENDER GRID & DRAWER ---
-function renderClientGrid() {
-    const grid = document.getElementById('sitesGrid');
-    if (!grid) return;
-    grid.innerHTML = '';
+// --- INITIALIZATION ---
+document.addEventListener('DOMContentLoaded', () => {
+    const confirmBtn = document.getElementById('btnConfirm');
+    if (confirmBtn) {
+        confirmBtn.onclick = async () => {
+            const name = document.getElementById('uName').value.trim();
+            const phone = document.getElementById('uPhone').value.trim();
+            const place = document.getElementById('uPlace').value.trim();
 
-    allSites.forEach(site => {
-        const bookings = allBookings.filter(b => b.siteId === site.id);
-        const isFull = bookings.length >= site.aSlots;
+            if(!name || !phone || !place) return alert("All fields are required!");
+            if(!isValidPhone(phone)) return alert("Invalid WhatsApp number! Enter 10 digits.");
 
-        const card = document.createElement('div');
-        card.className = 'site-card';
-        card.onclick = () => window.openDrawer(site.id);
-        card.innerHTML = `
-            <div class="site-img-container">
-                <img src="${site.aImg || 'https://images.unsplash.com/photo-1555244162-803834f70033?w=500'}">
-                ${isFull ? '<div class="full-banner">SITE FULL</div>' : ''}
-            </div>
-            <div class="card-body">
-                <span class="wage-badge">₹${site.aWage}</span>
-                <h3 style="margin:10px 0 5px 0">${site.aSitename}</h3>
-                <p style="color:#636e72; font-size:0.9rem; margin:0;">
-                    <i class="fas fa-calendar-alt"></i> ${site.aDate} | 
-                    <i class="fas fa-map-marker-alt"></i> ${site.aPlace}
-                </p>
-            </div>
-        `;
-        grid.appendChild(card);
-    });
-}
+            await addDoc(collection(db, "bookings"), { 
+                siteId: window.currentSiteId, uName: name, uPhone: phone, uPlace: place, paid: false, notes: "" 
+            });
+            
+            document.getElementById('regPopup').style.display = 'none';
+            document.querySelectorAll('#regPopup input').forEach(i => i.value = "");
+            alert("Slot booked successfully!");
+        };
+    }
+});
 
+// --- DRAWER LOGIC ---
 window.openDrawer = (id) => {
-    const s = allSites.find(site => site.id === id);
+    currentOpenSiteId = id;
+    const s = allSites.find(x => x.id === id);
+    if (!s) return;
     const bookings = allBookings.filter(b => b.siteId === id);
-    const drawer = document.getElementById('siteDrawer');
-    const body = document.getElementById('drawerBody');
-
+    const isClosed = s.aDate < getToday();
+    
+    // Create the Slots HTML
     let slotsHTML = '';
     for (let i = 0; i < s.aSlots; i++) {
         const b = bookings[i];
+        let actionContent = b ? 
+            `<div style="text-align:right">
+                <small>${b.uPhone.slice(0,4)}***${b.uPhone.slice(-2)}</small><br>
+                ${!isClosed ? `<span style="color:red; cursor:pointer; font-size:0.7rem;" onclick="cancelBooking('${b.id}','${b.uPhone}')">Cancel</span>` : ''}
+            </div>` :
+            (isClosed ? `<span style="color:gray; font-size:0.8rem;">Closed</span>` : 
+            `<button onclick="window.openReg('${id}')" style="background:var(--primary); color:white; border:none; padding:6px 15px; border-radius:6px; cursor:pointer;">Book</button>`);
+
         slotsHTML += `
-            <div class="slot-row">
-                <span>Slot ${i + 1}</span>
-                ${b ? `
-                    <div style="text-align:right">
-                        <span style="font-weight:700;">${b.uName}</span><br>
-                        <small onclick="cancelMyBooking('${b.id}', '${b.uPhone}')" style="color:#d63031; cursor:pointer;">Not interested? Cancel Slot</small>
-                    </div>
-                ` : `
-                    <button onclick="window.openReg('${id}')" style="background:var(--primary); color:white; border:none; padding:8px 15px; border-radius:8px; cursor:pointer;">Book Now</button>
-                `}
+            <div style="display:flex; justify-content:space-between; align-items:center; padding:12px; border-bottom:1px solid #eee;">
+                <div><strong>#${i+1}</strong> ${b ? b.uName : 'Available'}</div>
+                ${actionContent}
+            </div>`;
+    }
+
+    const drawerBody = document.getElementById('drawerBody');
+    if(drawerBody) {
+        drawerBody.innerHTML = `
+            <div class="media-container" style="border-radius:15px; margin-bottom:15px; height:180px;">${renderMedia(s.aImg)}</div>
+            
+            <div style="display:flex; justify-content:space-between; align-items:start;">
+                <h2 style="margin:0; font-size:1.4rem;">${s.aSitename}</h2>
+                ${s.aMapLink ? `<a href="${s.aMapLink}" target="_blank" style="text-decoration:none; background:#4285F4; color:white; padding:6px 12px; border-radius:8px; font-size:0.8rem; display:flex; align-items:center; gap:5px;">📍 Directions</a>` : ''}
+            </div>
+
+            <p style="color:var(--primary); font-weight:700; margin:8px 0;">📍 ${s.aPlaceName}</p>
+            
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin:15px 0;">
+                <div style="background:#f8f9fa; padding:10px; border-radius:10px;"><small style="color:#666">Wage</small><div style="font-weight:700">₹${s.aWage}</div></div>
+                <div style="background:#f8f9fa; padding:10px; border-radius:10px;"><small style="color:#666">Time</small><div style="font-weight:700">${s.aTime}</div></div>
+                ${s.aGuests ? `<div style="background:#f8f9fa; padding:10px; border-radius:10px;"><small style="color:#666">Guest Count</small><div style="font-weight:700">👥 ${s.aGuests}</div></div>` : ''}
+                <div style="background:#f8f9fa; padding:10px; border-radius:10px;"><small style="color:#666">Status</small><div style="font-weight:700">${isClosed ? 'CLOSED' : `${bookings.length}/${s.aSlots} Slots`}</div></div>
+            </div>
+            
+            <div style="background:#fff9e6; border-left:4px solid #ffcc00; padding:10px; margin-bottom:15px; border-radius:4px;">
+                <strong style="font-size:0.85rem;">Requirements:</strong><br>
+                <span style="font-size:0.9rem;">${s.aReq || 'Standard uniform required.'}</span>
+            </div>
+
+            <h3 style="margin-top:20px; border-top:1px solid #eee; padding-top:15px; font-size:1.1rem;">Staff Selection</h3>
+            <div style="background:white; border-radius:10px; border:1px solid #eee; overflow:hidden;">
+                ${slotsHTML}
             </div>
         `;
     }
-
-    body.innerHTML = `
-        <img src="${s.aImg}" style="width:100%; height:180px; object-fit:cover; border-radius:15px; margin-bottom:15px;">
-        <h2 style="margin:0">${s.aSitename}</h2>
-        <a href="${s.aMap}" target="_blank" style="color:var(--primary); text-decoration:none; display:block; margin:5px 0 20px 0; font-weight:600; font-size:0.9rem;">View Location <i class="fas fa-external-link-alt"></i></a>
-        
-        <div class="detail-group">
-            <span class="detail-label">Wage</span><div class="detail-value">₹${s.aWage}</div>
-            <span class="detail-label">Place</span><div class="detail-value">${s.aPlace}</div>
-            <span class="detail-label">Report Time</span><div class="detail-value">${s.aTime}</div>
-            <span class="detail-label">Requirements</span><div class="detail-value">${s.aReq}</div>
-        </div>
-        
-        <h3 style="margin-top:25px; border-top:1px solid #eee; padding-top:20px;">Staff List</h3>
-        ${slotsHTML}
-        <div style="height:40px;"></div>
-    `;
-    drawer.classList.add('active');
+    document.getElementById('siteDrawer').classList.add('active');
+    document.getElementById('drawerOverlay').classList.add('active');
+    document.body.style.overflow = 'hidden';
 };
 
-// --- 3. ADMIN: PUBLISH & EDIT SITES ---
-window.publishSite = async () => {
-    const editId = document.getElementById('editId').value;
-    const siteData = {
-        aSitename: document.getElementById('aSitename').value,
-        aPlace: document.getElementById('aPlace').value,
-        aDate: document.getElementById('aDate').value,
-        aMap: document.getElementById('aMap').value,
-        aImg: document.getElementById('aImg').value || 'https://images.unsplash.com/photo-1555244162-803834f70033?w=500',
-        aWage: document.getElementById('aWage').value,
-        aSlots: parseInt(document.getElementById('aSlots').value) || 0,
-        aTime: document.getElementById('aTime').value,
-        aGuests: document.getElementById('aGuests').value,
-        aReq: document.getElementById('aReq').value,
-        updatedAt: serverTimestamp()
-    };
-
-    if (!siteData.aSitename || siteData.aSlots <= 0) return alert("Fill all fields!");
-
-    try {
-        if (editId) {
-            await updateDoc(doc(db, "sites", editId), siteData);
-            alert("Site Updated!");
-        } else {
-            await addDoc(collection(db, "sites"), { ...siteData, createdAt: serverTimestamp() });
-            alert("New Site Published!");
-        }
-        window.cancelEdit();
-    } catch (e) { alert("Error: " + e.message); }
+window.closeDrawer = () => {
+    currentOpenSiteId = null;
+    document.getElementById('siteDrawer').classList.remove('active');
+    document.getElementById('drawerOverlay').classList.remove('active');
+    document.body.style.overflow = 'auto';
 };
 
-// --- 4. ADMIN: MASTER VIEW (Site & Client Management) ---
-function renderAdminMasterView() {
-    const container = document.getElementById('masterViewContainer');
-    if (!container) return;
-    container.innerHTML = '';
+// --- CLIENT RENDERING ---
+function renderClient() {
+    const grid = document.getElementById('sitesGrid');
+    if (!grid) return;
+    grid.innerHTML = '';
+    const grouped = {};
+    const todayStr = getToday();
 
-    allSites.forEach(site => {
-        const bookings = allBookings.filter(b => b.siteId === site.id);
-        const div = document.createElement('div');
-        div.className = 'glass-card';
-        div.innerHTML = `
-            <div style="display:flex; justify-content:space-between; align-items:center; border-bottom: 1px solid #eee; padding-bottom:10px; margin-bottom:10px;">
-                <h3 style="margin:0">${site.aSitename} (${bookings.length}/${site.aSlots})</h3>
-                <div>
-                    <button onclick="startEdit('${site.id}')" style="color:var(--primary); background:none; border:none; cursor:pointer;"><i class="fas fa-edit"></i> Edit Site</button>
-                    <button onclick="deleteSite('${site.id}')" style="color:red; background:none; border:none; cursor:pointer; margin-left:15px;"><i class="fas fa-trash"></i> Delete Site</button>
-                </div>
-            </div>
-            <table class="responsive-table">
-                <thead><tr><th>Staff</th><th>Place</th><th>WhatsApp</th><th>Admin Action</th></tr></thead>
-                <tbody>
-                    ${bookings.map(b => `<tr>
-                        <td data-label="Staff">${b.uName}</td>
-                        <td data-label="Place">${b.uPlace}</td>
-                        <td data-label="WhatsApp">${b.uPhone}</td>
-                        <td>
-                            <button onclick="deleteBooking('${b.id}')" style="color:red; border:none; background:none; cursor:pointer;" title="Remove Client">
-                                <i class="fas fa-user-minus"></i> Remove
-                            </button>
-                        </td>
-                    </tr>`).join('') || '<tr><td colspan="4" style="text-align:center; padding:20px;">No registrations.</td></tr>'}
-                </tbody>
-            </table>
-        `;
-        container.appendChild(div);
+    allSites.forEach(s => {
+        const cat = getCategorizedLabel(s.aDate);
+        if (!grouped[cat]) grouped[cat] = [];
+        grouped[cat].push(s);
+    });
+
+    Object.keys(grouped).forEach(cat => {
+        const header = document.createElement('div');
+        header.className = 'date-section-header';
+        header.innerText = cat;
+        grid.appendChild(header);
+
+        const wrap = document.createElement('div');
+        wrap.className = 'sites-grid';
+        
+        grouped[cat].forEach(site => {
+            const bookings = allBookings.filter(b => b.siteId === site.id);
+            const isFull = bookings.length >= site.aSlots;
+            const isClosed = site.aDate < todayStr;
+            let banner = isClosed ? '<div class="full-banner" style="background:#000">CLOSED</div>' : (isFull ? '<div class="full-banner">FULL</div>' : '');
+
+            const card = document.createElement('div');
+            card.className = 'site-card';
+            card.innerHTML = `
+                <div class="media-container">${renderMedia(site.aImg)}${banner}</div>
+                <div class="card-body">
+                    <div style="display:flex; justify-content:space-between; align-items:center;">
+                        <h3 style="margin:0; font-size:1.1rem;">${site.aSitename}</h3>
+                        <span class="wage-badge" style="background:var(--primary); color:white; padding:4px 8px; border-radius:6px; font-size:0.8rem;">₹${site.aWage}</span>
+                    </div>
+                    <div style="margin-top:10px; font-size:0.85rem; color:#666; display:flex; flex-direction:column; gap:4px;">
+                        <div>📍 <strong>${site.aPlaceName}</strong></div>
+                        <div>🗓️ ${formatDisplayDate(site.aDate)} | ⏰ ${site.aTime}</div>
+                    </div>
+                </div>`;
+            card.onclick = () => window.openDrawer(site.id);
+            wrap.appendChild(card);
+        });
+        grid.appendChild(wrap);
     });
 }
 
-// --- 5. GLOBAL HELPERS (Delete/Cancel/Security) ---
+// --- ADMIN RENDERING ---
+function renderAdmin() {
+    const container = document.getElementById('masterViewContainer');
+    if (!container) return;
+    container.innerHTML = '';
+    
+    const grouped = {};
+    const todayStr = getToday();
 
-// Client self-cancellation with verification
-window.cancelMyBooking = async (bookingId, originalPhone) => {
-    const verify = prompt("To cancel, please enter the WhatsApp number used for this booking:");
-    if (verify === originalPhone) {
-        if (confirm("Confirm cancellation? This will free up the slot for others.")) {
-            await deleteDoc(doc(db, "bookings", bookingId));
-            alert("Slot freed successfully.");
-            window.closeDrawer();
-        }
-    } else if (verify !== null) {
-        alert("Verification failed. Number does not match.");
-    }
-};
+    allSites.forEach(s => {
+        const cat = getCategorizedLabel(s.aDate);
+        if (!grouped[cat]) grouped[cat] = [];
+        grouped[cat].push(s);
+    });
 
-window.checkPin = () => {
+    Object.keys(grouped).forEach(cat => {
+        const header = document.createElement('div');
+        header.className = 'date-section-header';
+        header.style.margin = "25px 0 10px 0";
+        header.innerText = cat;
+        container.appendChild(header);
+
+        grouped[cat].forEach(s => {
+            const bookings = allBookings.filter(b => b.siteId === s.id);
+            const card = document.createElement('div');
+            card.className = 'glass-card admin-card';
+            card.style.marginBottom = "20px";
+            card.innerHTML = `
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; flex-wrap:wrap;">
+                    <div>
+                        <h3 style="margin:0;">${s.aSitename} (${bookings.length}/${s.aSlots})</h3>
+                        <small>📅 ${formatDisplayDate(s.aDate)}</small>
+                    </div>
+                    <div>
+                        <button onclick="startEdit('${s.id}')">Edit</button>
+                        <button onclick="deleteSite('${s.id}')" style="color:red">Del</button>
+                    </div>
+                </div>
+                <div style="overflow-x:auto; border:1px solid #eee; border-radius:8px;">
+                    <table style="width:100%; min-width:600px; border-collapse:collapse;">
+                        <thead style="background:#f4f4f4;">
+                            <tr>
+                                <th style="padding:10px; text-align:left;">Staff</th>
+                                <th style="padding:10px; text-align:center;">Paid</th>
+                                <th style="padding:10px;">Notes/Fines</th>
+                                <th style="padding:10px;">Action</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${bookings.map(b => `
+                                <tr style="border-bottom:1px solid #eee;">
+                                    <td style="padding:10px;">${b.uName}<br><small>${b.uPhone}</small></td>
+                                    <td style="padding:10px; text-align:center;">
+                                        <input type="checkbox" ${b.paid ? 'checked' : ''} onchange="window.updateBooking('${b.id}', {paid: this.checked})">
+                                    </td>
+                                    <td style="padding:10px;">
+                                        <input type="text" value="${b.notes || ''}" placeholder="Fine/Note" onchange="window.updateBooking('${b.id}', {notes: this.value})" style="width:100%;">
+                                    </td>
+                                    <td style="padding:10px; color:red; cursor:pointer; text-align:center;" onclick="deleteBooking('${b.id}')">Remove</td>
+                                </tr>`).join('')}
+                        </tbody>
+                    </table>
+                </div>`;
+            container.appendChild(card);
+        });
+    });
+}
+
+// --- GLOBAL ACCESSORS ---
+window.checkPin = () => { 
     const pin = document.getElementById('pinInput').value;
     if(pin === "rinshan2026") { 
-        document.getElementById('authOverlay').style.display = 'none';
-        document.getElementById('adminMain').classList.add('unlocked');
-    } else { alert("Unauthorized PIN."); }
+        document.getElementById('authOverlay').style.display = 'none'; 
+        document.getElementById('adminMain').style.display = 'block'; 
+        renderAdmin();
+    } else { alert("Wrong PIN"); }
+};
+
+window.openReg = (id) => { window.currentSiteId = id; document.getElementById('regPopup').style.display = 'flex'; };
+window.updateBooking = async (id, data) => await updateDoc(doc(db, "bookings", id), data);
+window.deleteBooking = async (id) => { if(confirm("Remove?")) await deleteDoc(doc(db, "bookings", id)); };
+window.deleteSite = async (id) => { if(confirm("Delete Site?")) await deleteDoc(doc(db, "sites", id)); };
+window.cancelBooking = async (id, phone) => { if(prompt("Enter WhatsApp number to confirm:") === phone) await deleteDoc(doc(db, "bookings", id)); };
+
+window.publishSite = async () => {
+    const data = {
+        aSitename: document.getElementById('aSitename').value,
+        aDate: document.getElementById('aDate').value,
+        aPlaceName: document.getElementById('aPlaceName').value,
+        aWage: document.getElementById('aWage').value,
+        aSlots: parseInt(document.getElementById('aSlots').value),
+        aTime: document.getElementById('aTime').value,
+        aGuests: document.getElementById('aGuests').value,
+        aMapLink: document.getElementById('aMapLink').value,
+        aImg: document.getElementById('aImg').value,
+        aReq: document.getElementById('aReq').value
+    };
+    const id = document.getElementById('editId').value;
+    if(id) await updateDoc(doc(db, "sites", id), data);
+    else await addDoc(collection(db, "sites"), data);
+    
+    // Clear form without reload
+    document.getElementById('editId').value = "";
+    document.querySelectorAll('.admin-input-group input, .admin-input-group textarea').forEach(i => i.value = "");
+    document.getElementById('submitBtn').innerText = "Publish Site";
+    alert("Saved Successfully!");
 };
 
 window.startEdit = (id) => {
-    const s = allSites.find(site => site.id === id);
+    const s = allSites.find(x => x.id === id);
     document.getElementById('editId').value = s.id;
     document.getElementById('aSitename').value = s.aSitename;
-    document.getElementById('aPlace').value = s.aPlace;
     document.getElementById('aDate').value = s.aDate;
+    document.getElementById('aPlaceName').value = s.aPlaceName;
     document.getElementById('aWage').value = s.aWage;
-    document.getElementById('aTime').value = s.aTime;
     document.getElementById('aSlots').value = s.aSlots;
-    document.getElementById('aMap').value = s.aMap;
+    document.getElementById('aTime').value = s.aTime;
+    document.getElementById('aGuests').value = s.aGuests;
+    document.getElementById('aMapLink').value = s.aMapLink;
     document.getElementById('aImg').value = s.aImg;
     document.getElementById('aReq').value = s.aReq;
-    document.getElementById('aGuests').value = s.aGuests;
-
     document.getElementById('submitBtn').innerText = "Update Site";
-    document.getElementById('formTitle').innerText = "Edit Site: " + s.aSitename;
-    document.getElementById('cancelBtn').style.display = "block";
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-};
-
-window.cancelEdit = () => {
-    document.getElementById('editId').value = "";
-    document.getElementById('submitBtn').innerText = "Publish Now";
-    document.getElementById('cancelBtn').style.display = "none";
-    document.getElementById('formTitle').innerText = "Create Site Opening";
-    document.querySelectorAll('input, textarea').forEach(i => i.value = "");
-};
-
-window.deleteSite = async (id) => { if(confirm("Delete this site and all data?")) await deleteDoc(doc(db, "sites", id)); };
-window.deleteBooking = async (id) => { if(confirm("Remove this client from the list?")) await deleteDoc(doc(db, "bookings", id)); };
-
-window.openReg = (id) => {
-    document.getElementById('regPopup').style.display = 'flex';
-    document.getElementById('btnConfirm').onclick = async () => {
-        const uName = document.getElementById('uName').value;
-        const uPhone = document.getElementById('uPhone').value;
-        const uPlace = document.getElementById('uPlace').value;
-
-        if (!uName || !uPhone) return alert("Fill Name and Phone!");
-        await addDoc(collection(db, "bookings"), { siteId: id, uName, uPhone, uPlace, bookedAt: serverTimestamp() });
-        window.closeReg();
-        alert("Booking Confirmed!");
-    };
-};
-
-window.closeDrawer = () => document.getElementById('siteDrawer').classList.remove('active');
-window.closeReg = () => document.getElementById('regPopup').style.display = 'none';
-
-window.filterSites = () => {
-    const val = document.getElementById('searchBar').value.toLowerCase();
-    document.querySelectorAll('.site-card').forEach(card => {
-        card.style.display = card.innerText.toLowerCase().includes(val) ? 'block' : 'none';
-    });
+    window.scrollTo(0,0);
 };

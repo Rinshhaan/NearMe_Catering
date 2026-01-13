@@ -3,47 +3,47 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>NearMe | Master Admin</title>
-    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <title>Admin | NearMe</title>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
-
-    <div id="authOverlay">
-        <div class="auth-box">
-            <h2 style="margin-top:0">Security PIN</h2>
-            <input type="password" id="pinInput" maxlength="11" placeholder="••••">
-            <button onclick="checkPin()" class="btn-pub" style="margin-top:20px">Unlock Dashboard</button>
+    <div id="authOverlay" style="position:fixed; inset:0; background:#f4f7f6; z-index:9999; display:flex; align-items:center; justify-content:center;">
+        <div style="background:#fff; padding:40px; border-radius:20px; text-align:center; border:1px solid #ddd;">
+            <h2>Master Login</h2>
+            <input type="password" id="pinInput" placeholder="••••" style="text-align:center; font-size:2rem; width:150px; border:none; border-bottom:2px solid var(--primary); outline:none;">
+            <br><br>
+            <button onclick="checkPin()" style="background:var(--primary); color:white; border:none; padding:12px 30px; border-radius:10px; cursor:pointer;">Unlock</button>
         </div>
     </div>
 
-    <div class="admin-container" id="adminMain">
-        <h1>Management Console</h1>
-        
-        <div class="glass-card">
-            <h3 id="formTitle"><i class="fas fa-plus-circle"></i> Create Site Opening</h3>
-            <input type="hidden" id="editId"> <div class="grid-inputs">
-                <input type="text" id="aSitename" placeholder="Auditorium Name">
-                <input type="text" id="aPlace" placeholder="Location">
-                <input type="date" id="aDate">
-                <input type="text" id="aMap" placeholder="Map Embed SRC (https://...)">
-                <input type="text" id="aImg" placeholder="Image URL (e.g. Unsplash link)">
-                <input type="number" id="aWage" placeholder="Wage (e.g. 700)">
-                <input type="number" id="aSlots" placeholder="Total Staff Needed">
-                <input type="text" id="aTime" placeholder="Arrival Time">
-                <input type="text" id="aGuests" placeholder="Guest Count">
-            </div>
-            <textarea id="aReq" placeholder="Requirements (Dress code, etc.)" style="margin-top:15px;"></textarea>
-            
-            <button onclick="publishSite()" id="submitBtn" class="btn-pub">Publish Now</button>
-            <button onclick="cancelEdit()" id="cancelBtn" class="btn-cancel" style="display:none;">Cancel Edit</button>
+    <div class="container" id="adminMain" style="display:none;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
+            <h1>Dashboard</h1>
+            <input type="text" id="adminSearchBar" placeholder="Search phone/name..." onkeyup="filterAdminSites()" style="padding:10px; border-radius:50px; border:1px solid #ddd; width:250px;">
         </div>
 
-        <h2>Staff Bookings Master View</h2>
+        <div class="glass-card">
+            <h3 id="formTitle">Create Event</h3>
+            <input type="hidden" id="editId">
+            <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap:10px;">
+                <input type="text" id="aSitename" placeholder="Event Name">
+                <input type="date" id="aDate">
+                <input type="text" id="aPlaceName" placeholder="Place">
+                <input type="text" id="aWage" placeholder="Wage">
+                <input type="number" id="aSlots" placeholder="Slots">
+                <input type="text" id="aTime" placeholder="Time">
+                <input type="text" id="aGuests" placeholder="Guest Count">
+                <input type="text" id="aMapLink" placeholder="Map Link">
+                <input type="text" id="aImg" placeholder="Image/Embed Link">
+            </div>
+            <textarea id="aReq" placeholder="Requirements" style="width:100%; margin-top:10px; border-radius:8px; border:1px solid #ddd; padding:10px;"></textarea>
+            <button onclick="publishSite()" id="submitBtn" style="margin-top:15px; background:var(--primary); color:white; border:none; padding:15px 30px; border-radius:10px; font-weight:700; cursor:pointer;">Publish Site</button>
+            <button onclick="cancelEdit()" id="cancelBtn" style="display:none; background:#eee; border:none; padding:15px; margin-left:10px; border-radius:10px;">Cancel</button>
+        </div>
+
         <div id="masterViewContainer"></div>
     </div>
-
     <script type="module" src="app.js"></script>
 </body>
 </html>
