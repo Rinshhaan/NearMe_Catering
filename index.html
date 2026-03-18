@@ -1,20 +1,24 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>NearMe | Catering Management</title>
-    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800&display=swap"
+        rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link rel="stylesheet" href="style.css">
 </head>
+
 <body>
 
     <header>
         <div style="font-size: 1.5rem; font-weight: 900;">Near<span style="color:var(--primary)">Me</span></div>
         <div class="search-pill">
             <i class="fas fa-search" style="color: var(--text-muted);"></i>
-            <input type="text" id="searchBar" placeholder="Search event or place..." onkeyup="filterSites()">
+            <input type="text" id="searchBar" placeholder="Search event, place or team..."
+                onkeyup="window.renderClient()">
         </div>
     </header>
 
@@ -23,29 +27,42 @@
     </main>
 
     <footer>
-        <div style="font-size: 1.5rem; font-weight: 900; margin-bottom: 10px;">Near<span style="color:var(--primary)">Me</span></div>
+        <div style="font-size: 1.5rem; font-weight: 900; margin-bottom: 10px;">Near<span
+                style="color:var(--primary)">Me</span></div>
         <p style="color: #a0a0a0;">One platform for all catering boys needs. Find work near you instantly.</p>
-        <a href="https://chat.whatsapp.com/GRL6h4tG8r9K8" class="wa-link"><i class="fab fa-whatsapp"></i> Join WhatsApp Group</a>
+        <a href="https://chat.whatsapp.com/GRL6h4tG8r9K8" class="wa-link"><i class="fab fa-whatsapp"></i> Join WhatsApp
+            Group</a>
     </footer>
 
     <div id="drawerOverlay" class="drawer-overlay" onclick="closeDrawer()"></div>
     <div id="siteDrawer" class="drawer">
         <div class="close-btn" onclick="closeDrawer()"><i class="fas fa-times"></i></div>
-        <div style="width: 40px; height: 5px; background: #ddd; margin: 15px auto; border-radius: 10px;" onclick="closeDrawer()"></div>
+        <div style="width: 40px; height: 5px; background: #ddd; margin: 15px auto; border-radius: 10px;"
+            onclick="closeDrawer()"></div>
         <div id="drawerBody"></div>
     </div>
 
-    <div id="regPopup" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.7); z-index:3000; align-items:center; justify-content:center; backdrop-filter: blur(5px);">
+    <div id="regPopup"
+        style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.7); z-index:3000; align-items:center; justify-content:center; backdrop-filter: blur(5px);">
         <div style="background: #fff; padding: 30px; border-radius: 20px; width: 90%; max-width: 380px;">
             <h3 style="margin-top:0">Register for Slot</h3>
-            <input type="text" id="uName" placeholder="Full Name" style="width:100%; padding:12px; margin-bottom:10px; border:1px solid #ddd; border-radius:8px;">
-            <input type="tel" id="uPhone" placeholder="WhatsApp Number (+91...)" style="width:100%; padding:12px; margin-bottom:10px; border:1px solid #ddd; border-radius:8px;">
-            <input type="text" id="uPlace" placeholder="Current Location" style="width:100%; padding:12px; margin-bottom:20px; border:1px solid #ddd; border-radius:8px;">
-            <button id="btnConfirm" style="width:100%; background:var(--primary); color:white; border:none; padding:15px; border-radius:10px; font-weight:700; cursor:pointer;">Confirm Booking</button>
-            <p onclick="document.getElementById('regPopup').style.display='none'" style="text-align:center; margin-top:15px; cursor:pointer; color:var(--text-muted);">Cancel</p>
+            <input type="text" id="uName" placeholder="Full Name"
+                style="width:100%; padding:12px; margin-bottom:10px; border:1px solid #ddd; border-radius:8px;">
+            <input type="tel" id="uPhone" placeholder="WhatsApp Number (+91...)"
+                style="width:100%; padding:12px; margin-bottom:10px; border:1px solid #ddd; border-radius:8px;">
+            <input type="tel" id="uPhone2" placeholder="2nd WhatsApp Number (Optional)"
+                style="width:100%; padding:12px; margin-bottom:10px; border:1px solid #ddd; border-radius:8px;">
+            <input type="text" id="uPlace" placeholder="Current Location"
+                style="width:100%; padding:12px; margin-bottom:20px; border:1px solid #ddd; border-radius:8px;">
+            <button id="btnConfirm"
+                style="width:100%; background:var(--primary); color:white; border:none; padding:15px; border-radius:10px; font-weight:700; cursor:pointer;">Confirm
+                Booking</button>
+            <p onclick="document.getElementById('regPopup').style.display='none'"
+                style="text-align:center; margin-top:15px; cursor:pointer; color:var(--text-muted);">Cancel</p>
         </div>
     </div>
 
     <script type="module" src="app.js"></script>
 </body>
+
 </html>
