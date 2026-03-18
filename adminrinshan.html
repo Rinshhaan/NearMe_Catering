@@ -1,49 +1,67 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Admin | NearMe</title>
-    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800&display=swap"
+        rel="stylesheet">
     <link rel="stylesheet" href="style.css">
 </head>
+
 <body>
-    <div id="authOverlay" style="position:fixed; inset:0; background:#f4f7f6; z-index:9999; display:flex; align-items:center; justify-content:center;">
+    <div id="authOverlay"
+        style="position:fixed; inset:0; background:#f4f7f6; z-index:9999; display:flex; align-items:center; justify-content:center;">
         <div style="background:#fff; padding:40px; border-radius:20px; text-align:center; border:1px solid #ddd;">
             <h2>Master Login</h2>
-            <input type="password" id="pinInput" placeholder="••••" style="text-align:center; font-size:2rem; width:150px; border:none; border-bottom:2px solid var(--primary); outline:none;">
+            <input type="password" id="pinInput" placeholder="••••"
+                style="text-align:center; font-size:2rem; width:150px; border:none; border-bottom:2px solid var(--primary); outline:none;">
             <br><br>
-            <button onclick="checkPin()" style="background:var(--primary); color:white; border:none; padding:12px 30px; border-radius:10px; cursor:pointer;">Unlock</button>
+            <button onclick="checkPin()"
+                style="background:var(--primary); color:white; border:none; padding:12px 30px; border-radius:10px; cursor:pointer;">Unlock</button>
         </div>
     </div>
 
     <div class="container" id="adminMain" style="display:none;">
-        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
-            <h1>Dashboard</h1>
-            <input type="text" id="adminSearchBar" placeholder="Search phone/name..." onkeyup="filterAdminSites()" style="padding:10px; border-radius:50px; border:1px solid #ddd; width:250px;">
+        <div
+            style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px; flex-wrap:wrap; gap:10px;">
+            <h1 style="margin:0;">Dashboard</h1>
+            <input type="text" id="adminSearchBar" placeholder="Search event, place, name, phone..."
+                onkeyup="window.filterAdminSites()" class="stunning-input" style="max-width:340px; border-radius:50px;">
         </div>
 
         <div class="glass-card">
-            <h3 id="formTitle">Create Event</h3>
+            <h3 id="formTitle" style="margin-top:0;">Create Event</h3>
             <input type="hidden" id="editId">
-            <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap:10px;">
-                <input type="text" id="aSitename" placeholder="Event Name">
-                <input type="date" id="aDate">
-                <input type="text" id="aPlaceName" placeholder="Place">
-                <input type="text" id="aWage" placeholder="Wage">
-                <input type="number" id="aSlots" placeholder="Slots">
-                <input type="text" id="aTime" placeholder="Time">
-                <input type="text" id="aGuests" placeholder="Guest Count">
-                <input type="text" id="aMapLink" placeholder="Map Link">
-                <input type="text" id="aImg" placeholder="Image/Embed Link">
+            <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap:12px;">
+                <input type="text" id="aSitename" class="stunning-input" placeholder="Auditorium/Site Name">
+                <input type="date" id="aDate" class="stunning-input">
+                <input type="text" id="aPlaceName" class="stunning-input" placeholder="Place">
+                <input type="text" id="aWage" class="stunning-input" placeholder="Wage (e.g. 500)">
+                <input type="number" id="aSlots" class="stunning-input" placeholder="Slots (Optional)">
+                <input type="text" id="aTime" class="stunning-input" placeholder="Time (e.g. 8AM–4PM)">
+                <input type="text" id="aGuests" class="stunning-input" placeholder="Guest Count (Optional)">
+                <input type="text" id="aMapLink" class="stunning-input" placeholder="Google Map Link">
+                <input type="text" id="aImg" class="stunning-input" placeholder="Image URL (Optional)">
+                <input type="text" id="aTeamName" class="stunning-input" placeholder="Team Name (Optional)">
             </div>
-            <textarea id="aReq" placeholder="Requirements" style="width:100%; margin-top:10px; border-radius:8px; border:1px solid #ddd; padding:10px;"></textarea>
-            <button onclick="publishSite()" id="submitBtn" style="margin-top:15px; background:var(--primary); color:white; border:none; padding:15px 30px; border-radius:10px; font-weight:700; cursor:pointer;">Publish Site</button>
-            <button onclick="cancelEdit()" id="cancelBtn" style="display:none; background:#eee; border:none; padding:15px; margin-left:10px; border-radius:10px;">Cancel</button>
+            <textarea id="aReq" class="stunning-input stunning-textarea"
+                placeholder="Requirements (e.g. White shirt, black pant)"></textarea>
+            <textarea id="aNotes" class="stunning-input stunning-textarea"
+                placeholder="Event Notes — one bullet point per line (Optional)"></textarea>
+            <div style="margin-top:20px; display:flex; gap:10px; flex-wrap:wrap;">
+                <button onclick="publishSite()" id="submitBtn"
+                    style="background:var(--primary); color:white; border:none; padding:14px 30px; border-radius:10px; font-weight:700; cursor:pointer; font-size:1rem;">Publish
+                    Site</button>
+                <button onclick="cancelEdit()" id="cancelBtn"
+                    style="display:none; background:#eee; border:none; padding:14px 20px; border-radius:10px; font-weight:600; cursor:pointer;">Cancel</button>
+            </div>
         </div>
 
         <div id="masterViewContainer"></div>
     </div>
     <script type="module" src="app.js"></script>
 </body>
+
 </html>
