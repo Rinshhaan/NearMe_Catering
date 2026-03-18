@@ -173,7 +173,12 @@ window.openDrawer = (id) => {
         }
 
         const drawerMedia = s.aMapLink && s.aImg
-            ? `<a href="${s.aMapLink}" target="_blank" style="display:block;width:100%;height:100%;">${drawerMediaInner}</a>`
+            ? `<a href="${s.aMapLink}" target="_blank" style="display:block;width:100%;height:100%; position:relative;">
+                   ${drawerMediaInner}
+                   <div class="glass-arrow-icon">
+                       <i class="fas fa-location-arrow"></i>
+                   </div>
+               </a>`
             : drawerMediaInner;
 
         drawerBody.innerHTML = `
