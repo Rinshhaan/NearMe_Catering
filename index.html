@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>NearMe | Catering Management</title>
+    <title>Nearby Caters | Catering Management</title>
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800&display=swap"
         rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
@@ -14,21 +14,32 @@
 <body>
 
     <header>
-        <div style="font-size: 1.5rem; font-weight: 900;">Near<span style="color:var(--primary)">Me</span></div>
+        <div style="display: flex; align-items: center; gap: 10px;">
+            <img src="logo.jpg" alt="Logo" style="height: 40px; border-radius: 50%;">
+            <div style="font-size: 1.5rem; font-weight: 900;">Nearby <span style="color:var(--primary)">Caters</span></div>
+        </div>
+        <div class="search-pill desktop-search-pill">
+            <i class="fas fa-search" style="color: var(--text-muted);"></i>
+            <input type="text" id="desktopSearchBar" placeholder="Search event, place or team..."
+                onkeyup="document.getElementById('searchBar').value = this.value; window.renderClient()">
+        </div>
+    </header>
+
+    <div class="mobile-search-container">
         <div class="search-pill">
             <i class="fas fa-search" style="color: var(--text-muted);"></i>
             <input type="text" id="searchBar" placeholder="Search event, place or team..."
-                onkeyup="window.renderClient()">
+                onkeyup="document.getElementById('desktopSearchBar').value = this.value; window.renderClient()">
         </div>
-    </header>
+    </div>
 
     <main class="container">
         <div id="sitesGrid"></div>
     </main>
 
     <footer>
-        <div style="font-size: 1.5rem; font-weight: 900; margin-bottom: 10px;">Near<span
-                style="color:var(--primary)">Me</span></div>
+        <div style="font-size: 1.5rem; font-weight: 900; margin-bottom: 10px;">Nearby <span
+                style="color:var(--primary)">Caters</span></div>
         <p style="color: #a0a0a0;">One platform for all catering boys needs. Find work near you instantly.</p>
         <a href="https://chat.whatsapp.com/GRL6h4tG8r9K8" class="wa-link"><i class="fab fa-whatsapp"></i> Join WhatsApp
             Group</a>
