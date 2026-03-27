@@ -525,7 +525,7 @@ window.copyStaffList = (siteId, siteName) => {
 
 window.checkPin = () => {
     const pin = document.getElementById('pinInput').value;
-    if (pin === "rinshan2026") {
+    if (pin === "8078at") {
         document.getElementById('authOverlay').style.display = 'none';
         document.getElementById('adminMain').style.display = 'block';
         renderAdmin();
