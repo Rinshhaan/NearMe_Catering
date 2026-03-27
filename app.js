@@ -27,7 +27,7 @@ fetch('https://ipapi.co/json/')
                     <div style="display:flex; height:100vh; width:100vw; justify-content:center; align-items:center; background:#1a1b1e; color:white; font-family:'Plus Jakarta Sans', sans-serif; text-align:center; padding:20px;">
                         <div>
                             <h1 style="color:#e74c3c;">Access Restricted 📍</h1>
-                            <p style="color:#a0a0a0; margin-top:10px;">NearMe is currently only available for users in Kerala, India.</p>
+                            <p style="color:#a0a0a0; margin-top:10px;">Nearby Caters is currently only available for users in Kerala, India.</p>
                         </div>
                     </div>`;
             }
@@ -49,8 +49,8 @@ const getCategorizedLabel = (dateStr) => {
     const target = new Date(dateStr);
     const diff = Math.round((today - target) / (1000 * 3600 * 24));
     if (diff === 0) return "Today";
-    if (diff === -1) return "<span class='neon-text' style='color:#e74c3c; text-shadow:0 0 5px #e74c3c, 0 0 10px #e74c3c;'>Tomorrow</span>";
-    if (diff === -2) return "<span class='neon-text' style='color:#e74c3c; text-shadow:0 0 5px #e74c3c, 0 0 10px #e74c3c;'>Day after Tomorrow</span>";
+    if (diff === -1) return "<span style='background: #fff0f0; color: #d63031; padding: 4px 10px; border-radius: 6px; font-size: 0.85rem; font-weight: 800; border: 1px solid #fadcdc;'>Tomorrow</span>";
+    if (diff === -2) return "<span style='background: #fff0f0; color: #d63031; padding: 4px 10px; border-radius: 6px; font-size: 0.85rem; font-weight: 800; border: 1px solid #fadcdc;'>Day after Tomorrow</span>";
     if (diff < -2) return "Upcoming";
     if (diff === 1) return "Yesterday";
     return formatDisplayDate(dateStr);
@@ -63,7 +63,7 @@ const isValidPhone = (p) => {
 
 const renderMedia = (url) => {
     // Relying on style.css (.media-container img { max-width: 100%, max-height: 100%, object-fit: contain })
-    if (!url) return `<img src="https://via.placeholder.com/400x200?text=NearMe" style="display:block;">`;
+    if (!url) return `<img src="https://via.placeholder.com/400x200?text=Nearby+Caters" style="display:block;">`;
     if (url.includes("maps.google.com") || url.includes("<iframe")) {
         let src = url;
         if (url.includes("<iframe")) {
