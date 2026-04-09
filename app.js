@@ -1,743 +1,466 @@
-import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
-import { getFirestore, collection, addDoc, onSnapshot, query, orderBy, doc, updateDoc, deleteDoc } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
-
-const firebaseConfig = {
-    apiKey: "AIzaSyCeEYZ52ETdr4WlbBHrANVWMGeunfbS1aw",
-    authDomain: "nearmecatering.firebaseapp.com",
-    projectId: "nearmecatering",
-    storageBucket: "nearmecatering.firebasestorage.app",
-    messagingSenderId: "1089531792392",
-    appId: "1:1089531792392:web:62937c0026adbfcccf15bd"
-};
-
-const app = initializeApp(firebaseConfig);
-const db = getFirestore(app);
-
-// ⚙️ ADMIN WHATSAPP NUMBER
-const ADMIN_WHATSAPP = "918078240018";
-
-let allSites = [];
-let allBookings = [];
-let currentOpenSiteId = null;
-let activeTimerIntervals = [];
-
-// --- GEO-BLOCKING ---
-fetch('https://ipapi.co/json/')
-    .then(res => res.json())
-    .then(data => {
-        if (!data.error && data.country_code) {
-            if (data.country_code !== 'IN' || (data.region !== 'Kerala' && data.region !== 'KL')) {
-                document.body.innerHTML = `
-                    <div style="display:flex; height:100vh; width:100vw; justify-content:center; align-items:center; background:#1a1b1e; color:white; font-family:'Plus Jakarta Sans', sans-serif; text-align:center; padding:20px;">
-                        <div>
-                            <h1 style="color:#e74c3c;">Access Restricted 📍</h1>
-                            <p style="color:#a0a0a0; margin-top:10px;">Nearby Caters is currently only available for users in Kerala, India.</p>
-                        </div>
-                    </div>`;
-            }
-        }
-    })
-    .catch(e => console.log('Location check skipped'));
-
-// --- UTILITIES ---
-const getToday = () => new Date().toISOString().split('T')[0];
-
-const formatDisplayDate = (dateStr) => {
-    if (!dateStr) return "";
-    const [year, month, day] = dateStr.split('-');
-    return `${day}-${month}-${year}`;
-};
-
-const getCategorizedLabel = (dateStr) => {
-    const today = new Date(getToday());
-    const target = new Date(dateStr);
-    const diff = Math.round((today - target) / (1000 * 3600 * 24));
-    if (diff === 0) return "Today";
-    if (diff === -1) return "<span style='background: #fff0f0; color: #d63031; padding: 4px 10px; border-radius: 6px; font-size: 0.85rem; font-weight: 800; border: 1px solid #fadcdc;'>Tomorrow</span>";
-    if (diff === -2) return "<span style='background: #fff0f0; color: #d63031; padding: 4px 10px; border-radius: 6px; font-size: 0.85rem; font-weight: 800; border: 1px solid #fadcdc;'>Day after Tomorrow</span>";
-    if (diff < -2) return "Upcoming";
-    if (diff === 1) return "Yesterday";
-    return formatDisplayDate(dateStr);
-};
-
-const isValidPhone = (p) => {
-    const digits = p.replace(/\D/g, "");
-    return digits.length >= 10 && /^[6-9]\d{9}$/.test(digits.slice(-10));
-};
-
-const renderMedia = (url) => {
-    // Relying on style.css (.media-container img { max-width: 100%, max-height: 100%, object-fit: contain })
-    if (!url) return `<img src="https://via.placeholder.com/400x200?text=Nearby+Caters" style="display:block;">`;
-    if (url.includes("maps.google.com") || url.includes("<iframe")) {
-        let src = url;
-        if (url.includes("<iframe")) {
-            const match = url.match(/src="([^"]+)"/);
-            src = match ? match[1] : '';
-        }
-        return `<iframe src="${src}" style="border:0; width:100%; height:100%;" overflow="hidden" scrolling="no" allowfullscreen="" loading="lazy"></iframe>`;
-    }
-    return `<img src="${url}" style="display:block;">`;
-};
-
-// --- DATA SYNC ---
-onSnapshot(query(collection(db, "sites"), orderBy("aDate", "desc")), (snap) => {
-    allSites = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-    updateUI();
-});
-
-onSnapshot(collection(db, "bookings"), (snap) => {
-    allBookings = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-    updateUI();
-    if (currentOpenSiteId) window.openDrawer(currentOpenSiteId);
-});
-
-function updateUI() {
-    if (document.getElementById('sitesGrid')) renderClient();
-    if (document.getElementById('masterViewContainer')) renderAdmin();
+/* style.css */
+:root {
+    --primary: #0984e3;
+    --success: #00b894;
+    --danger: #d63031;
+    --bg: #f4f7f6;
+    --card-bg: #ffffff;
+    --text: #2d3436;
+    --text-muted: #636e72;
+    --border: #dfe6e9;
 }
 
-// --- INITIALIZATION ---
-document.addEventListener('DOMContentLoaded', () => {
-    const confirmBtn = document.getElementById('btnConfirm');
-    if (confirmBtn) {
-        confirmBtn.onclick = async () => {
-            const name = document.getElementById('uName').value.trim();
-            const phone = document.getElementById('uPhone').value.trim();
-            const phone2Element = document.getElementById('uPhone2');
-            const phone2 = phone2Element ? phone2Element.value.trim() : "";
-            const place = document.getElementById('uPlace').value.trim();
+* {
+    box-sizing: border-box;
+    font-family: 'Plus Jakarta Sans', sans-serif;
+    -webkit-tap-highlight-color: transparent;
+}
 
-            if (!name || !phone || !place) return alert("All fields are required!");
-            if (!isValidPhone(phone)) return alert("Invalid WhatsApp number! Please enter a valid number.");
-            if (phone2 && !isValidPhone(phone2)) return alert("Invalid 2nd WhatsApp number!");
+body {
+    background: var(--bg);
+    color: var(--text);
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    min-height: 100vh;
+}
 
-            // Check if timer expired before allowing booking
-            const site = allSites.find(x => x.id === window.currentSiteId);
-            if (site && site.aTimerEnd) {
-                const deadline = new Date(site.aTimerEnd).getTime();
-                if (Date.now() >= deadline) {
-                    alert("⏰ Sorry, booking time for this site has expired!");
-                    document.getElementById('regPopup').style.display = 'none';
-                    return;
-                }
-            }
+header {
+    background: #fff;
+    padding: 15px 5%;
+    position: sticky;
+    top: 0;
+    z-index: 1000;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    border-bottom: 1px solid var(--border);
+    border-radius: 0 0 30px 30px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05);
+}
 
-            await addDoc(collection(db, "bookings"), {
-                siteId: window.currentSiteId, uName: name, uPhone: phone, uPhone2: phone2, uPlace: place, paid: false, notes: ""
-            });
-
-            document.getElementById('regPopup').style.display = 'none';
-            document.querySelectorAll('#regPopup input').forEach(i => i.value = "");
-
-            // Build WhatsApp confirmation message
-            const siteName = site ? site.aSitename : 'Unknown Site';
-            const siteDate = site ? formatDisplayDate(site.aDate) : '';
-            const siteTime = site ? site.aTime : '';
-            const now = new Date();
-            const bookedAt = `${now.toLocaleDateString('en-IN')} ${now.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}`;
-
-            const waMsg = `✅ *Booking Confirmation — Nearby Caters*\n\n` +
-                `📍 *Site:* ${siteName}\n` +
-                `📅 *Date:* ${siteDate}\n` +
-                `⏰ *Time:* ${siteTime}\n` +
-                `👤 *Name:* ${name}\n` +
-                `📞 *Phone:* ${phone}\n` +
-                `🕐 *Booked at:* ${bookedAt}`;
-
-            const waUrl = `https://wa.me/${ADMIN_WHATSAPP}?text=${encodeURIComponent(waMsg)}`;
-
-            // Show success then redirect
-            alert("✅ Slot booked successfully! You'll be redirected to WhatsApp to confirm.");
-            window.open(waUrl, '_blank');
-        };
-    }
-});
-
-// --- DRAWER LOGIC ---
-window.openDrawer = (id) => {
-    currentOpenSiteId = id;
-    const s = allSites.find(x => x.id === id);
-    if (!s) return;
-    const bookings = allBookings.filter(b => b.siteId === id);
-    const isTimerExpired = s.aTimerEnd ? Date.now() >= new Date(s.aTimerEnd).getTime() : false;
-    const isClosed = s.aDate < getToday() || isTimerExpired;
-
-    // Create the Slots HTML
-    let slotsHTML = '';
-    const totalSlots = s.aSlots || null; // null = unlimited
-    const slotCount = totalSlots !== null ? totalSlots : bookings.length + 1; // show existing + 1 open if unlimited
-    for (let i = 0; i < slotCount; i++) {
-        const b = bookings[i];
-        let actionContent = b ?
-            `<div style="text-align:right">
-                <small>${b.uPhone.slice(0, 4)}***${b.uPhone.slice(-2)}</small><br>
-                ${!isClosed ? `<span style="color:red; cursor:pointer; font-size:0.7rem;" onclick="cancelBooking('${b.id}','${b.uPhone}')">Cancel</span>` : ''}
-            </div>` :
-            (isClosed ? `<span style="color:gray; font-size:0.8rem;">Closed</span>` :
-                `<button onclick="window.openReg('${id}')" style="background:var(--primary); color:white; border:none; padding:6px 15px; border-radius:6px; cursor:pointer;">Book</button>`);
-
-        slotsHTML += `
-            <div style="display:flex; justify-content:space-between; align-items:center; padding:12px; border-bottom:1px solid #eee;">
-                <div><strong>#${i + 1}</strong> ${b ? b.uName : 'Available'}</div>
-                ${actionContent}
-            </div>`;
-    }
-    // If unlimited, add one more open slot at the bottom if last slot is filled
-    if (totalSlots === null && bookings.length > 0 && bookings[slotCount - 1]) {
-        slotsHTML += `
-            <div style="display:flex; justify-content:space-between; align-items:center; padding:12px; border-bottom:1px solid #eee;">
-                <div><strong>#${slotCount + 1}</strong> Available</div>
-                <button onclick="window.openReg('${id}')" style="background:var(--primary); color:white; border:none; padding:6px 15px; border-radius:6px; cursor:pointer;">Book</button>
-            </div>`;
-    }
-
-    const drawerBody = document.getElementById('drawerBody');
-    if (drawerBody) {
-        // Build media for drawer: if aImg exists show it (clickable if map link), else embed map iframe
-        let drawerMediaInner;
-        if (s.aImg) {
-            drawerMediaInner = renderMedia(s.aImg);
-        } else if (s.aMapLink) {
-            // Convert share link to embed URL
-            let embedUrl = s.aMapLink;
-            if (!embedUrl.includes('/embed')) {
-                embedUrl = `https://maps.google.com/maps?q=${encodeURIComponent(s.aPlaceName || '')}&output=embed&z=15`;
-            }
-            drawerMediaInner = `<iframe src="${embedUrl}" style="border:0; width:100%; height:100%;" allowfullscreen loading="lazy"></iframe>`;
-        } else {
-            drawerMediaInner = renderMedia('');
-        }
-
-        const drawerMedia = s.aMapLink && s.aImg
-            ? `<a href="${s.aMapLink}" target="_blank" style="display:block;width:100%;height:100%; position:relative;">
-                   ${drawerMediaInner}
-                   <div class="glass-arrow-icon">
-                       <i class="fas fa-location-arrow"></i>
-                   </div>
-               </a>`
-            : drawerMediaInner;
-
-        drawerBody.innerHTML = `
-            <div class="media-container" style="border-radius:15px; margin-bottom:15px; height:200px; pointer-events:auto;">${drawerMedia}</div>
-            
-            <div style="display:flex; justify-content:space-between; align-items:start;">
-                <h2 style="margin:0; font-size:1.4rem;">${s.aSitename}</h2>
-            </div>
-
-            <p style="color:var(--primary); font-weight:700; margin:8px 0;">📍 ${s.aPlaceName}</p>
-            ${s.aTeamName ? `<div style="margin-bottom:10px;"><span style="background:#f1f2f6; color:#333; padding:4px 10px; border-radius:6px; font-size:0.85rem; font-weight:600;">Team ${s.aTeamName}</span></div>` : ''}
-            
-            <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin:15px 0;">
-                ${s.aWage ? `<div style="background:#f8f9fa; padding:10px; border-radius:10px;"><small style="color:#666">Wage</small><div style="font-weight:700">₹${s.aWage}</div></div>` : ''}
-                <div style="background:#f8f9fa; padding:10px; border-radius:10px;"><small style="color:#666">Time</small><div style="font-weight:700">${s.aTime}</div></div>
-                ${s.aGuests ? `<div style="background:#f8f9fa; padding:10px; border-radius:10px;"><small style="color:#666">Guest Count</small><div style="font-weight:700">👥 ${s.aGuests}</div></div>` : ''}
-                <div style="background:#f8f9fa; padding:10px; border-radius:10px;"><small style="color:#666">Status</small><div style="font-weight:700">${isClosed ? 'CLOSED' : (totalSlots ? `${bookings.length}/${totalSlots} Slots` : `${bookings.length} Booked (Open)`)}</div></div>
-            </div>
-            
-            <div style="background:#fff9e6; border-left:4px solid #ffcc00; padding:10px; margin-bottom:15px; border-radius:4px;">
-                <strong style="font-size:0.85rem;">Requirements:</strong><br>
-                <span style="font-size:0.9rem;">${s.aReq || 'Black pant, White shirt, Black shoe, Black belt'}</span>
-            </div>
-            ${s.aNotes ? `<div style="background:#f8f9fa; padding:15px; border-radius:10px; margin-bottom:15px;">
-                <h4 style="margin:0 0 10px 0;">📌 Notes</h4>
-                <ul style="margin:0; padding-left:20px; font-size:0.9rem; color:#444;">
-                    ${s.aNotes.split(/[,\n]+/).map(n => n.trim()).filter(n => n).map(n => `<li style="margin-bottom:6px;">${n}</li>`).join('')}
-                </ul>
-            </div>` : ''}
-
-            ${s.aTimerEnd && !isTimerExpired ? `
-            <div id="drawerCountdown" class="countdown-banner countdown-active">
-                <div class="countdown-icon">⏰</div>
-                <div class="countdown-text">
-                    <span class="countdown-label">Booking closes in</span>
-                    <span id="drawerCountdownValue" class="countdown-value">--:--:--</span>
-                </div>
-            </div>` : ''}
-            ${isTimerExpired && s.aTimerEnd ? `
-            <div class="countdown-banner countdown-expired">
-                <div class="countdown-icon">🔒</div>
-                <div class="countdown-text">
-                    <span class="countdown-label">Booking period has ended</span>
-                </div>
-            </div>` : ''}
-
-            <h3 style="margin-top:20px; border-top:1px solid #eee; padding-top:15px; font-size:1.1rem;">Staff Selection</h3>
-            <div style="background:white; border-radius:10px; border:1px solid #eee; overflow:hidden;">
-                ${slotsHTML}
-            </div>
-        `;
-    }
-    document.getElementById('siteDrawer').classList.add('active');
-    document.getElementById('drawerOverlay').classList.add('active');
-    document.body.style.overflow = 'hidden';
-
-    // Start countdown timer for drawer if applicable
-    clearAllTimerIntervals();
-    if (s.aTimerEnd && !isTimerExpired) {
-        startDrawerCountdown(s.aTimerEnd);
-    }
-};
-
-window.closeDrawer = () => {
-    currentOpenSiteId = null;
-    document.getElementById('siteDrawer').classList.remove('active');
-    document.getElementById('drawerOverlay').classList.remove('active');
-    document.body.style.overflow = 'auto';
-};
-
-// --- CLIENT RENDERING ---
-window.filterSites = () => renderClient();
-window.renderClient = renderClient; // expose for onkeyup in HTML
-
-function renderClient() {
-    const grid = document.getElementById('sitesGrid');
-    if (!grid) return;
-    grid.innerHTML = '';
-    const todayStr = getToday();
-    const todayDate = new Date(todayStr);
-    const searchVal = document.getElementById('searchBar') ? document.getElementById('searchBar').value.toLowerCase().trim() : '';
-
-    const limitState = window.clientDisplayLimit || 'last_week';
-    let filteredSites = [];
-
-    allSites.forEach(s => {
-        // Search filter: null-safe field access — also searches bookings (name, phone)
-        if (searchVal) {
-            const m1 = (s.aSitename || '').toLowerCase().includes(searchVal);
-            const m2 = (s.aPlaceName || '').toLowerCase().includes(searchVal);
-            const m3 = (s.aTeamName || '').toLowerCase().includes(searchVal);
-            const siteBookings = allBookings.filter(b => b.siteId === s.id);
-            const m4 = siteBookings.some(b =>
-                (b.uName || '').toLowerCase().includes(searchVal) ||
-                (b.uPhone || '').includes(searchVal) ||
-                (b.uPhone2 || '').includes(searchVal)
-            );
-            if (!m1 && !m2 && !m3 && !m4) return; // skip non-matching
-        }
-        const siteDate = new Date(s.aDate);
-        const daysDiff = Math.floor((todayDate - siteDate) / (1000 * 3600 * 24));
-
-        // When searching, bypass date-limit — show ALL matching events
-        if (searchVal) {
-            filteredSites.push(s);
-            return;
-        }
-
-        if (daysDiff <= 0) {
-            filteredSites.push(s);
-        } else {
-            if (limitState === 'last_week' && daysDiff <= 7) filteredSites.push(s);
-            else if (limitState === 'current_month' && daysDiff <= 31) filteredSites.push(s);
-            else if (limitState === 'all') filteredSites.push(s);
-        }
-    });
-
-    const grouped = {};
-    filteredSites.forEach(s => {
-        const cat = getCategorizedLabel(s.aDate);
-        if (!grouped[cat]) grouped[cat] = [];
-        grouped[cat].push(s);
-    });
-
-    Object.keys(grouped).forEach(cat => {
-        const header = document.createElement('div');
-        header.className = 'date-section-header';
-        header.innerHTML = cat;
-        grid.appendChild(header);
-
-        const wrap = document.createElement('div');
-        wrap.className = 'sites-grid';
-
-        grouped[cat].forEach(site => {
-            const bookings = allBookings.filter(b => b.siteId === site.id);
-            const isFull = site.aSlots ? bookings.length >= site.aSlots : false; // unlimited = never full
-            const siteTimerExpired = site.aTimerEnd ? Date.now() >= new Date(site.aTimerEnd).getTime() : false;
-            const isClosed = site.aDate < todayStr || siteTimerExpired;
-            let banner = isClosed ? (siteTimerExpired && site.aDate >= todayStr ? '<div class="full-banner" style="background:linear-gradient(135deg,#e17055,#d63031)">⏰ BOOKING CLOSED</div>' : '<div class="full-banner" style="background:#000">CLOSED</div>') : (isFull ? '<div class="full-banner">FULL</div>' : '');
-
-            // Add countdown badge on card if timer is active
-            let countdownBadge = '';
-            if (site.aTimerEnd && !siteTimerExpired && !isFull && site.aDate >= todayStr) {
-                const remaining = getTimeRemaining(site.aTimerEnd);
-                if (remaining) {
-                    countdownBadge = `<div class="card-countdown-badge"><span class="timer-icon-spin">⏳</span> ${remaining}</div>`;
-                }
-            }
-            const teamBadge = site.aTeamName ? `<div style="margin-top:6px;"><span style="background:#f1f2f6; color:#333; padding:3px 8px; border-radius:4px; font-size:0.75rem; display:inline-block; font-weight:600;">Team: ${site.aTeamName}</span></div>` : '';
-            // Site-card: just show image, no map link (clicking card opens drawer)
-            const mediaHTML = renderMedia(site.aImg);
-
-            const card = document.createElement('div');
-            card.className = 'site-card';
-            card.innerHTML = `
-                <div class="media-container">${mediaHTML}${banner}${countdownBadge}</div>
-                <div class="card-body">
-                    <div style="display:flex; justify-content:space-between; align-items:center;">
-                        <h3 style="margin:0; font-size:1.1rem;">${site.aSitename}</h3>
-                        ${site.aWage ? `<span class="wage-badge" style="background:var(--primary); color:white; padding:4px 8px; border-radius:6px; font-size:0.8rem;">₹${site.aWage}</span>` : ''}
-                    </div>
-                    ${teamBadge}
-                    <div style="margin-top:10px; font-size:0.85rem; color:#666; display:flex; flex-direction:column; gap:4px;">
-                        <div>📍 <strong>${site.aPlaceName}</strong></div>
-                        <div>🗓️ ${formatDisplayDate(site.aDate)} | ⏰ ${site.aTime}</div>
-                    </div>
-                </div>`;
-            card.onclick = () => window.openDrawer(site.id);
-            wrap.appendChild(card);
-        });
-        grid.appendChild(wrap);
-    });
-
-    const hasMoreBeyondLastWeek = allSites.some(s => Math.floor((todayDate - new Date(s.aDate)) / (1000 * 3600 * 24)) > 7);
-    const hasMoreBeyondMonth = allSites.some(s => Math.floor((todayDate - new Date(s.aDate)) / (1000 * 3600 * 24)) > 31);
-
-    if (limitState === 'last_week' && hasMoreBeyondLastWeek) {
-        const btn = document.createElement('button');
-        btn.innerText = "Show More (Current Month)";
-        btn.onclick = () => { window.clientDisplayLimit = 'current_month'; renderClient(); };
-        btn.style.cssText = "display:block; width:100%; max-width:300px; margin:30px auto; padding:12px; background:#fff; color:var(--primary); border:1px solid var(--primary); border-radius:50px; font-weight:bold; cursor:pointer;";
-        grid.appendChild(btn);
-    } else if (limitState === 'current_month' && hasMoreBeyondMonth) {
-        const btn = document.createElement('button');
-        btn.innerText = "Load More (All Past Events)";
-        btn.onclick = () => { window.clientDisplayLimit = 'all'; renderClient(); };
-        btn.style.cssText = "display:block; width:100%; max-width:300px; margin:30px auto; padding:12px; background:#fff; color:var(--primary); border:1px solid var(--primary); border-radius:50px; font-weight:bold; cursor:pointer;";
-        grid.appendChild(btn);
+@media (min-width: 768px) {
+    header {
+        flex-direction: row;
+        justify-content: space-between;
+        align-items: center;
+        border-radius: 0;
+        box-shadow: none;
     }
 }
 
-// --- ADMIN RENDERING ---
-window.filterAdminSites = () => renderAdmin();
-
-function renderAdmin() {
-    const container = document.getElementById('masterViewContainer');
-    if (!container) return;
-    container.innerHTML = '';
-
-    const searchVal = document.getElementById('adminSearchBar') ? document.getElementById('adminSearchBar').value.toLowerCase().trim() : '';
-
-    const grouped = {};
-    const todayStr = getToday();
-
-    allSites.forEach(s => {
-        const bookings = allBookings.filter(b => b.siteId === s.id);
-        if (searchVal) {
-            const mSite = (s.aSitename || '').toLowerCase().includes(searchVal)
-                || (s.aPlaceName || '').toLowerCase().includes(searchVal)
-                || (s.aTeamName || '').toLowerCase().includes(searchVal);
-            const mBooking = bookings.some(b =>
-                (b.uName || '').toLowerCase().includes(searchVal) ||
-                (b.uPhone || '').includes(searchVal) ||
-                (b.uPhone2 || '').includes(searchVal) ||
-                (b.uPlace || '').toLowerCase().includes(searchVal)
-            );
-            if (!mSite && !mBooking) return; // skip
-        }
-
-        const cat = getCategorizedLabel(s.aDate);
-        if (!grouped[cat]) grouped[cat] = [];
-        grouped[cat].push(s);
-    });
-
-    Object.keys(grouped).forEach(cat => {
-        const header = document.createElement('div');
-        header.className = 'date-section-header';
-        header.style.margin = "25px 0 10px 0";
-        header.innerHTML = cat;
-        container.appendChild(header);
-
-        grouped[cat].forEach(s => {
-            const bookings = allBookings.filter(b => b.siteId === s.id);
-            const card = document.createElement('div');
-            card.className = 'glass-card admin-card';
-            card.style.marginBottom = "20px";
-            card.innerHTML = `
-                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; flex-wrap:wrap;">
-                    <div>
-                        <h3 style="margin:0;">${s.aSitename} (${bookings.length}/${s.aSlots ? s.aSlots : '∞'})</h3>
-                        <small>📅 ${formatDisplayDate(s.aDate)}</small>
-                    </div>
-                    <div>
-                        <button onclick="window.manualAddUser('${s.id}')" style="background:var(--success); color:white; border:none; padding:6px 12px; border-radius:6px; cursor:pointer; margin-right:5px; font-weight:bold;">+ Add User</button>
-                        <button onclick="startEdit('${s.id}')">Edit</button>
-                        <button onclick="deleteSite('${s.id}')" style="color:red">Del</button>
-                    </div>
-                </div>
-                <div style="overflow-x:auto; border:1px solid #eee; border-radius:8px;">
-                    <table style="width:100%; min-width:680px; border-collapse:collapse;">
-                        <thead style="background:#f4f4f4;">
-                            <tr>
-                                <th style="padding:10px; text-align:left;">Staff</th>
-                                <th style="padding:10px; text-align:left;">Place</th>
-                                <th style="padding:10px; text-align:center;">Att.</th>
-                                <th style="padding:10px; text-align:center;">Paid</th>
-                                <th style="padding:10px;">Notes/Fines</th>
-                                <th style="padding:10px; text-align:center;">Action</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            ${bookings.map(b => {
-                const isEditing = window.editingRowId === b.id;
-                if (isEditing) {
-                    const draft = window.editDraft;
-                    return `
-                                    <tr style="border-bottom:1px solid #eee; background:#f9fbfe;">
-                                        <td style="padding:8px; min-width:160px;">
-                                            <input type="text" value="${draft.uName || ''}" placeholder="Name" oninput="window.editDraft.uName=this.value" style="width:100%; border:1px solid #0984e3; border-radius:4px; padding:4px 6px; font-size:0.85rem; margin-bottom:4px;">
-                                            <input type="tel" value="${draft.uPhone || ''}" placeholder="Phone" oninput="window.editDraft.uPhone=this.value" style="width:100%; border:1px solid #0984e3; border-radius:4px; padding:4px 6px; font-size:0.8rem; margin-bottom:2px;">
-                                            <input type="tel" value="${draft.uPhone2 || ''}" placeholder="Alt No" oninput="window.editDraft.uPhone2=this.value" style="width:100%; border:1px solid #0984e3; border-radius:4px; padding:4px 6px; font-size:0.78rem;">
-                                        </td>
-                                        <td style="padding:8px; min-width:110px;">
-                                            <input type="text" value="${draft.uPlace || ''}" placeholder="Place" oninput="window.editDraft.uPlace=this.value" style="width:100%; border:1px solid #0984e3; border-radius:4px; padding:4px 6px; font-size:0.85rem;">
-                                        </td>
-                                        <td style="padding:8px; text-align:center;">
-                                            <input type="checkbox" ${draft.attendance ? 'checked' : ''} onchange="window.editDraft.attendance=this.checked" style="transform:scale(1.2);">
-                                        </td>
-                                        <td style="padding:8px; text-align:center;">
-                                            <input type="checkbox" ${draft.paid ? 'checked' : ''} onchange="window.editDraft.paid=this.checked" style="transform:scale(1.2);">
-                                        </td>
-                                        <td style="padding:8px; min-width:130px;">
-                                            <input type="text" value="${draft.notes || ''}" placeholder="Fine/Note" oninput="window.editDraft.notes=this.value" style="width:100%; border:1px solid #0984e3; border-radius:4px; padding:4px 6px; font-size:0.85rem;">
-                                        </td>
-                                        <td style="padding:8px; text-align:center; min-width:80px;">
-                                            <button onclick="window.saveRowEdit()" style="background:#00b894; color:white; border:none; padding:5px 8px; border-radius:4px; cursor:pointer; font-weight:bold; margin-bottom:6px; width:100%; font-size:0.8rem;">Save</button>
-                                            <button onclick="window.cancelRowEdit()" style="background:#eee; color:#333; border:none; padding:5px 8px; border-radius:4px; cursor:pointer; width:100%; font-size:0.8rem;">Cancel</button>
-                                        </td>
-                                    </tr>`;
-                } else {
-                    return `
-                                    <tr style="border-bottom:1px solid #eee;">
-                                        <td style="padding:10px;">
-                                            <strong style="color:var(--text);">${b.uName || 'Unknown'}</strong><br>
-                                            <small style="color:#555;">${b.uPhone || '-'}</small>
-                                            ${b.uPhone2 ? `<br><small style="color:gray;">Alt: ${b.uPhone2}</small>` : ''}
-                                        </td>
-                                        <td style="padding:10px; font-size:0.9rem;">${b.uPlace || '-'}</td>
-                                        <td style="padding:10px; text-align:center;">
-                                            <input type="checkbox" disabled ${b.attendance ? 'checked' : ''}>
-                                        </td>
-                                        <td style="padding:10px; text-align:center;">
-                                            <input type="checkbox" disabled ${b.paid ? 'checked' : ''}>
-                                        </td>
-                                        <td style="padding:10px; font-size:0.85rem; color:#444;">${b.notes ? b.notes : '<span style="color:#ccc;">-</span>'}</td>
-                                        <td style="padding:8px; text-align:center; min-width:80px;">
-                                            <button onclick="window.startRowEdit('${b.id}')" style="background:var(--primary); color:white; border:none; padding:5px 12px; border-radius:4px; cursor:pointer; margin-bottom:8px; font-size:0.8rem; width:100%;">Edit</button>
-                                            <span style="color:red; cursor:pointer; font-size:0.8rem; font-weight:600; display:block;" onclick="deleteBooking('${b.id}')">Remove</span>
-                                        </td>
-                                    </tr>`;
-                }
-            }).join('')}
-                        </tbody>
-                    </table>
-                </div>
-                <button onclick="window.copyStaffList('${s.id}', '${(s.aSitename || '').replace(/'/g, "\\'")}')"
-                    style="margin-top:12px; background:#f1f2f6; color:#333; border:1px solid #ddd; padding:8px 18px; border-radius:8px; cursor:pointer; font-weight:600; font-size:0.85rem; display:flex; align-items:center; gap:6px;">
-                    📋 Copy Staff List
-                </button>`;
-            container.appendChild(card);
-        });
-    });
+.search-pill {
+    background: #f1f2f6;
+    border-radius: 50px;
+    padding: 10px 20px;
+    display: flex;
+    align-items: center;
+    width: 100%;
+    max-width: 400px;
 }
 
-// --- GLOBAL ACCESSORS ---
-window.startRowEdit = (id) => {
-    const b = allBookings.find(x => x.id === id);
-    if (!b) return;
-    window.editingRowId = id;
-    window.editDraft = { uName: b.uName, uPhone: b.uPhone, uPhone2: b.uPhone2, uPlace: b.uPlace, paid: !!b.paid, notes: b.notes, attendance: !!b.attendance };
-    renderAdmin();
-};
+.search-pill input {
+    background: transparent;
+    border: none;
+    outline: none;
+    width: 100%;
+    margin-left: 10px;
+    font-size: 0.95rem;
+}
 
-window.cancelRowEdit = () => {
-    window.editingRowId = null;
-    window.editDraft = null;
-    renderAdmin();
-};
+.desktop-search-pill {
+    display: none;
+}
 
-window.saveRowEdit = async () => {
-    if (!window.editingRowId) return;
-    const id = window.editingRowId;
-    const data = window.editDraft;
-    window.editingRowId = null;
-    window.editDraft = null;
-    await window.updateBooking(id, data);
-};
+.mobile-search-container {
+    display: block;
+    padding: 15px 5% 5px 5%;
+    background: transparent;
+}
 
-window.copyStaffList = (siteId, siteName) => {
-    const bookings = allBookings.filter(b => b.siteId === siteId);
-    if (!bookings.length) { alert('No staff booked yet.'); return; }
-    const col1 = 'Name';
-    const col2 = 'WhatsApp No';
-    const col3 = 'Alt No';
-    const sep = ' | ';
-    const divider = '-'.repeat(60);
-    const header = `${col1.padEnd(20)}${sep}${col2.padEnd(15)}${sep}${col3}`;
-    const rows = bookings.map((b, i) => {
-        const name = (b.uName || 'Unknown').padEnd(20);
-        const phone = (b.uPhone || '-').padEnd(15);
-        const phone2 = b.uPhone2 || '-';
-        return `${i + 1}. ${name}${sep}${phone}${sep}${phone2}`;
-    }).join('\n');
-    const text = `📋 Staff List — ${siteName}\n${divider}\n${header}\n${divider}\n${rows}\n${divider}\nTotal: ${bookings.length} staff`;
-    navigator.clipboard.writeText(text).then(() => alert('✅ Staff list copied!')).catch(() => {
-        // fallback for older browsers
-        const el = document.createElement('textarea');
-        el.value = text;
-        document.body.appendChild(el);
-        el.select();
-        document.execCommand('copy');
-        document.body.removeChild(el);
-        alert('✅ Staff list copied!');
-    });
-};
+.mobile-search-container .search-pill {
+    background: rgba(255, 255, 255, 0.45);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border: 1px solid rgba(255, 255, 255, 0.8);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.08), inset 0 0 0 1px rgba(255,255,255,0.6);
+}
 
-window.checkPin = () => {
-    const pin = document.getElementById('pinInput').value;
-    if (pin === "8078at") {
-        document.getElementById('authOverlay').style.display = 'none';
-        document.getElementById('adminMain').style.display = 'block';
-        renderAdmin();
-    } else { alert("Wrong PIN"); }
-};
-
-window.openReg = (id) => { window.currentSiteId = id; document.getElementById('regPopup').style.display = 'flex'; };
-window.updateBooking = async (id, data) => await updateDoc(doc(db, "bookings", id), data);
-window.deleteBooking = async (id) => { if (confirm("Remove?")) await deleteDoc(doc(db, "bookings", id)); };
-window.deleteSite = async (id) => { if (confirm("Delete Site?")) await deleteDoc(doc(db, "sites", id)); };
-window.cancelBooking = async (id, phone) => { if (prompt("Enter WhatsApp number to confirm:") === phone) await deleteDoc(doc(db, "bookings", id)); };
-
-window.manualAddUser = async (siteId) => {
-    const name = prompt("Enter Staff Name:");
-    if (!name) return;
-    const phone = prompt("Enter Contact Number:");
-    if (!phone) return;
-    const place = prompt("Enter Place/Location:");
-    if (!place) return;
-    await addDoc(collection(db, "bookings"), {
-        siteId: siteId, uName: name, uPhone: phone, uPhone2: "", uPlace: place, paid: false, notes: "Added by Admin"
-    });
-};
-
-window.publishSite = async () => {
-    const slotsVal = document.getElementById('aSlots').value;
-    if (!slotsVal || parseInt(slotsVal) < 1) return alert('Slots field is required!');
-
-    // Calculate timer end from duration inputs
-    const timerHours = parseInt(document.getElementById('aTimerHours')?.value) || 0;
-    const timerMins = parseInt(document.getElementById('aTimerMins')?.value) || 0;
-    let timerEndValue = '';
-    if (timerHours > 0 || timerMins > 0) {
-        const endTime = new Date(Date.now() + (timerHours * 3600000) + (timerMins * 60000));
-        timerEndValue = endTime.toISOString();
+@media (min-width: 768px) {
+    .desktop-search-pill {
+        display: flex;
     }
-
-    const data = {
-        aSitename: document.getElementById('aSitename').value,
-        aDate: document.getElementById('aDate').value,
-        aPlaceName: document.getElementById('aPlaceName').value,
-        aWage: document.getElementById('aWage').value || '',
-        aSlots: parseInt(slotsVal),
-        aTime: document.getElementById('aTime').value,
-        aGuests: document.getElementById('aGuests').value || '',
-        aMapLink: document.getElementById('aMapLink').value,
-        aImg: document.getElementById('aImg').value,
-        aTeamName: document.getElementById('aTeamName') ? document.getElementById('aTeamName').value : '',
-        aReq: document.getElementById('aReq') ? (document.getElementById('aReq').value || 'Black pant, white shirt, black shoe, black belt') : 'Black pant, white shirt, black shoe, black belt',
-        aNotes: document.getElementById('aNotes') ? document.getElementById('aNotes').value : '',
-        aTimerEnd: timerEndValue
-    };
-    const id = document.getElementById('editId').value;
-    if (id) await updateDoc(doc(db, "sites", id), data);
-    else await addDoc(collection(db, "sites"), data);
-
-    // Clear form without reload
-    document.getElementById('editId').value = "";
-    document.querySelectorAll('.stunning-input').forEach(i => i.value = "");
-    if (document.getElementById('aReq')) document.getElementById('aReq').value = "";
-    if (document.getElementById('aNotes')) document.getElementById('aNotes').value = "";
-    if (document.getElementById('aTimerHours')) document.getElementById('aTimerHours').value = "";
-    if (document.getElementById('aTimerMins')) document.getElementById('aTimerMins').value = "";
-    document.getElementById('submitBtn').innerText = "Publish Site";
-    alert("Saved Successfully!");
-};
-
-window.startEdit = (id) => {
-    const s = allSites.find(x => x.id === id);
-    document.getElementById('editId').value = s.id;
-    document.getElementById('aSitename').value = s.aSitename;
-    document.getElementById('aDate').value = s.aDate;
-    document.getElementById('aPlaceName').value = s.aPlaceName;
-    document.getElementById('aWage').value = s.aWage;
-    document.getElementById('aSlots').value = s.aSlots;
-    document.getElementById('aTime').value = s.aTime;
-    document.getElementById('aGuests').value = s.aGuests;
-    document.getElementById('aMapLink').value = s.aMapLink;
-    document.getElementById('aImg').value = s.aImg;
-    if (document.getElementById('aTeamName')) document.getElementById('aTeamName').value = s.aTeamName || '';
-    if (document.getElementById('aReq')) document.getElementById('aReq').value = s.aReq || '';
-    if (document.getElementById('aNotes')) document.getElementById('aNotes').value = s.aNotes || '';
-    // Show remaining time in timer fields when editing
-    if (s.aTimerEnd && document.getElementById('aTimerHours')) {
-        const remaining = new Date(s.aTimerEnd).getTime() - Date.now();
-        if (remaining > 0) {
-            document.getElementById('aTimerHours').value = Math.floor(remaining / 3600000);
-            document.getElementById('aTimerMins').value = Math.floor((remaining % 3600000) / 60000);
-        } else {
-            document.getElementById('aTimerHours').value = '';
-            document.getElementById('aTimerMins').value = '';
-        }
-    } else {
-        if (document.getElementById('aTimerHours')) document.getElementById('aTimerHours').value = '';
-        if (document.getElementById('aTimerMins')) document.getElementById('aTimerMins').value = '';
+    .mobile-search-container {
+        display: none;
     }
-    document.getElementById('submitBtn').innerText = "Update Site";
-    window.scrollTo(0, 0);
-};
-
-// --- COUNTDOWN TIMER HELPERS ---
-function clearAllTimerIntervals() {
-    activeTimerIntervals.forEach(id => clearInterval(id));
-    activeTimerIntervals = [];
 }
 
-function getTimeRemaining(timerEnd) {
-    const diff = new Date(timerEnd).getTime() - Date.now();
-    if (diff <= 0) return null;
-    const h = Math.floor(diff / 3600000);
-    const m = Math.floor((diff % 3600000) / 60000);
-    const sec = Math.floor((diff % 60000) / 1000);
-    if (h > 0) return `${h}h ${m}m`;
-    if (m > 0) return `${m}m ${sec}s`;
-    return `${sec}s`;
+.container {
+    padding: 20px 5%;
+    flex: 1;
+    position: relative;
+    z-index: 1;
 }
 
-function startDrawerCountdown(timerEnd) {
-    const el = document.getElementById('drawerCountdownValue');
-    if (!el) return;
-    const tick = () => {
-        const remaining = getTimeRemaining(timerEnd);
-        if (!remaining) {
-            el.textContent = 'EXPIRED';
-            clearAllTimerIntervals();
-            // Re-render drawer to show locked state
-            if (currentOpenSiteId) window.openDrawer(currentOpenSiteId);
-            return;
-        }
-        el.textContent = remaining;
-        // Add urgency class when < 5 min
-        const diff = new Date(timerEnd).getTime() - Date.now();
-        const banner = document.getElementById('drawerCountdown');
-        if (banner) {
-            if (diff < 300000) banner.classList.add('countdown-urgent');
-            else banner.classList.remove('countdown-urgent');
-        }
-    };
-    tick();
-    const intervalId = setInterval(tick, 1000);
-    activeTimerIntervals.push(intervalId);
+.date-section-header {
+    font-size: 1.1rem;
+    font-weight: 800;
+    color: var(--primary);
+    margin: 35px 0 15px;
+    border-bottom: 2px solid var(--border);
+    padding-bottom: 8px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
 }
 
-// Refresh card countdown badges every 30s
-setInterval(() => {
-    if (document.getElementById('sitesGrid')) renderClient();
-}, 30000);
+.sites-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 20px;
+}
+
+/* Fixed Site Card Click Area */
+.site-card {
+    background: #fff;
+    border-radius: 16px;
+    border: 1px solid var(--border);
+    overflow: hidden;
+    transition: 0.3s;
+    cursor: pointer;
+    position: relative;
+    user-select: none;
+    display: block;
+}
+
+.site-card:active {
+    transform: scale(0.98);
+}
+
+.media-container {
+    width: 100%;
+    height: 190px;
+    background: #1a1b1e;
+    overflow: hidden;
+    position: relative;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+.media-container iframe,
+.media-container img {
+    width: 100%;
+    height: 100%;
+    border: none;
+    object-fit: cover;
+    display: block;
+}
+
+.media-container a {
+    display: block;
+    width: 100%;
+    height: 100%;
+    position: relative;
+}
+
+.glass-arrow-icon {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 60px;
+    height: 60px;
+    background: rgba(255, 255, 255, 0.15);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 255, 255, 0.4);
+    border-radius: 50%;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    color: white;
+    font-size: 1.5rem;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+    transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+    pointer-events: none;
+    z-index: 5;
+}
+
+.media-container a:hover .glass-arrow-icon {
+    background: rgba(255, 255, 255, 0.25);
+    transform: translate(-50%, -50%) scale(1.15);
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.3);
+}
+
+.full-banner {
+    position: absolute;
+    bottom: 0;
+    width: 100%;
+    background: rgba(214, 48, 49, 0.9);
+    color: white;
+    text-align: center;
+    padding: 6px;
+    font-weight: 800;
+    font-size: 0.75rem;
+    pointer-events: none;
+}
+
+.card-body {
+    padding: 15px;
+}
+
+.wage-badge {
+    background: #e1f0ff;
+    color: var(--primary);
+    font-weight: 800;
+    padding: 4px 10px;
+    border-radius: 6px;
+    font-size: 0.8rem;
+}
+
+/* Drawer & Popups - Higher Z-Index */
+.drawer-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.6);
+    z-index: 2000;
+    display: none;
+    backdrop-filter: blur(4px);
+}
+
+.drawer-overlay.active {
+    display: block;
+}
+
+.drawer {
+    position: fixed;
+    bottom: -100%;
+    left: 0;
+    width: 100%;
+    height: 85vh;
+    background: white;
+    border-radius: 24px 24px 0 0;
+    transition: 0.4s cubic-bezier(0.2, 0.8, 0.2, 1);
+    z-index: 2100;
+    box-shadow: 0 -10px 40px rgba(0, 0, 0, 0.2);
+}
+
+.drawer.active {
+    bottom: 0;
+}
+
+@media (min-width: 768px) {
+    .drawer {
+        width: 500px;
+        left: 50%;
+        transform: translateX(-50%);
+    }
+}
+
+#drawerBody {
+    padding: 20px;
+    overflow-y: auto;
+    height: 100%;
+    padding-bottom: 80px;
+}
+
+.close-btn {
+    position: absolute;
+    top: 15px;
+    right: 20px;
+    width: 35px;
+    height: 35px;
+    background: #f1f2f6;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    z-index: 2200;
+}
+
+.glass-card {
+    background: #fff;
+    padding: 20px;
+    border-radius: 20px;
+    border: 1px solid var(--border);
+    margin-bottom: 25px;
+}
+
+.stunning-input {
+    width: 100%;
+    padding: 12px 15px;
+    border: 1px solid #e0e0e0;
+    border-radius: 12px;
+    background: #f9fbfd;
+    font-size: 0.95rem;
+    transition: all 0.3s ease;
+    outline: none;
+    box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.02);
+}
+
+.stunning-input:focus {
+    border-color: var(--primary);
+    background: #fff;
+    box-shadow: 0 0 0 3px rgba(9, 132, 227, 0.15);
+}
+
+.stunning-textarea {
+    min-height: 80px;
+    resize: vertical;
+    margin-top: 15px;
+}
+
+.table-scroll-container {
+    width: 100%;
+    overflow-x: auto;
+    margin-top: 15px;
+}
+
+.admin-table {
+    width: 100%;
+    border-collapse: collapse;
+    min-width: 600px;
+}
+
+.admin-table th,
+.admin-table td {
+    padding: 12px;
+    border-bottom: 1px solid var(--border);
+    text-align: left;
+}
+
+footer {
+    background: #1a1b1e;
+    color: #fff;
+    padding: 40px 5%;
+    text-align: center;
+    margin-top: auto;
+}
+
+.wa-link {
+    background: #25d366;
+    color: #fff;
+    padding: 12px 25px;
+    border-radius: 50px;
+    text-decoration: none;
+    font-weight: 700;
+    display: inline-block;
+    margin-top: 15px;
+}
+
+.admin-table th {
+    font-size: 0.85rem;
+    color: #666;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.admin-table td input[type="text"] {
+    font-family: inherit;
+    font-size: 0.9rem;
+    transition: border 0.2s;
+}
+
+.admin-table td input[type="text"]:focus {
+    border-color: var(--primary);
+    outline: none;
+}
+
+/* --- Countdown Timer Styles --- */
+.countdown-banner {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 14px 18px;
+    border-radius: 14px;
+    margin: 15px 0;
+    font-weight: 600;
+}
+
+.countdown-active {
+    background: linear-gradient(135deg, #dfe6e9, #b2bec3);
+    color: #2d3436;
+    animation: countdownPulse 2s ease-in-out infinite;
+}
+
+.countdown-expired {
+    background: linear-gradient(135deg, #ffeaa7, #fab1a0);
+    color: #d63031;
+}
+
+.countdown-urgent {
+    background: linear-gradient(135deg, #ff7675, #d63031) !important;
+    color: #fff !important;
+    animation: countdownUrgent 0.8s ease-in-out infinite;
+}
+
+.countdown-icon {
+    font-size: 1.6rem;
+    flex-shrink: 0;
+}
+
+.countdown-text {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.countdown-label {
+    font-size: 0.78rem;
+    opacity: 0.8;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.countdown-value {
+    font-size: 1.25rem;
+    font-weight: 800;
+    letter-spacing: 1px;
+    font-variant-numeric: tabular-nums;
+}
+
+.card-countdown-badge {
+    position: absolute;
+    bottom: 10px;
+    right: 10px;
+    background: linear-gradient(135deg, rgba(9,132,227,0.85), rgba(0,184,148,0.85));
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    color: #fff;
+    padding: 6px 14px;
+    border-radius: 20px;
+    font-size: 0.78rem;
+    font-weight: 700;
+    z-index: 5;
+    pointer-events: none;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.25);
+    animation: countdownPulse 2.5s ease-in-out infinite;
+}
+
+.timer-icon-spin {
+    display: inline-block;
+    animation: timerSpin 2s ease-in-out infinite;
+    font-size: 0.9rem;
+}
+
+@keyframes timerSpin {
+    0% { transform: rotate(0deg); }
+    25% { transform: rotate(180deg); }
+    50% { transform: rotate(180deg); }
+    75% { transform: rotate(360deg); }
+    100% { transform: rotate(360deg); }
+}
+
+@keyframes countdownPulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.85; }
+}
+
+@keyframes countdownUrgent {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.01); box-shadow: 0 0 20px rgba(214, 48, 49, 0.3); }
+}
