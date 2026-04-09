@@ -146,15 +146,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
             const waUrl = `https://api.whatsapp.com/send?phone=${ADMIN_WHATSAPP}&text=${encodeURIComponent(waMsg)}`;
 
-            // Show brief success then redirect (no alert — iOS blocks redirects after alert)
-            const toast = document.createElement('div');
-            toast.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:rgba(0,0,0,0.85);color:#fff;padding:20px 30px;border-radius:16px;z-index:9999;font-weight:700;text-align:center;font-size:1.1rem;backdrop-filter:blur(10px);';
-            toast.innerHTML = '✅ Slot booked!<br><small style="font-weight:400;opacity:0.8;">Redirecting to WhatsApp...</small>';
-            document.body.appendChild(toast);
-
-            setTimeout(() => {
-                window.location.href = waUrl;
-            }, 1200);
+            // Show alert then redirect
+            alert("✅ Slot booked! Redirecting to WhatsApp to confirm...");
+            window.location.href = waUrl;
         };
     }
 });
