@@ -147,8 +147,8 @@ document.addEventListener('DOMContentLoaded', () => {
             const waUrl = `https://wa.me/${ADMIN_WHATSAPP}?text=${encodeURIComponent(waMsg)}`;
 
             // Show success then redirect
-            alert("✅ Slot booked successfully! You'll be redirected to WhatsApp to confirm.");
-            window.open(waUrl, '_blank');
+            alert("✅ Slot booked! Redirecting to WhatsApp to confirm...");
+            window.location.href = waUrl;
         };
     }
 });
@@ -706,7 +706,7 @@ function getTimeRemaining(timerEnd) {
     const h = Math.floor(diff / 3600000);
     const m = Math.floor((diff % 3600000) / 60000);
     const sec = Math.floor((diff % 60000) / 1000);
-    if (h > 0) return `${h}h ${m}m`;
+    if (h > 0) return `${h}h ${m}m ${sec}s`;
     if (m > 0) return `${m}m ${sec}s`;
     return `${sec}s`;
 }
