@@ -13,9 +13,13 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 
+// ⚙️ ADMIN WHATSAPP NUMBER
+const ADMIN_WHATSAPP = "918078240018";
+
 let allSites = [];
 let allBookings = [];
 let currentOpenSiteId = null;
+let activeTimerIntervals = [];
 
 // --- GEO-BLOCKING ---
 fetch('https://ipapi.co/json/')
@@ -107,13 +111,44 @@ document.addEventListener('DOMContentLoaded', () => {
             if (!isValidPhone(phone)) return alert("Invalid WhatsApp number! Please enter a valid number.");
             if (phone2 && !isValidPhone(phone2)) return alert("Invalid 2nd WhatsApp number!");
 
+            // Check if timer expired before allowing booking
+            const site = allSites.find(x => x.id === window.currentSiteId);
+            if (site && site.aTimerEnd) {
+                const deadline = new Date(site.aTimerEnd).getTime();
+                if (Date.now() >= deadline) {
+                    alert("⏰ Sorry, booking time for this site has expired!");
+                    document.getElementById('regPopup').style.display = 'none';
+                    return;
+                }
+            }
+
             await addDoc(collection(db, "bookings"), {
                 siteId: window.currentSiteId, uName: name, uPhone: phone, uPhone2: phone2, uPlace: place, paid: false, notes: ""
             });
 
             document.getElementById('regPopup').style.display = 'none';
             document.querySelectorAll('#regPopup input').forEach(i => i.value = "");
-            alert("Slot booked successfully!");
+
+            // Build WhatsApp confirmation message
+            const siteName = site ? site.aSitename : 'Unknown Site';
+            const siteDate = site ? formatDisplayDate(site.aDate) : '';
+            const siteTime = site ? site.aTime : '';
+            const now = new Date();
+            const bookedAt = `${now.toLocaleDateString('en-IN')} ${now.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}`;
+
+            const waMsg = `✅ *Booking Confirmation — Nearby Caters*\n\n` +
+                `📍 *Site:* ${siteName}\n` +
+                `📅 *Date:* ${siteDate}\n` +
+                `⏰ *Time:* ${siteTime}\n` +
+                `👤 *Name:* ${name}\n` +
+                `📞 *Phone:* ${phone}\n` +
+                `🕐 *Booked at:* ${bookedAt}`;
+
+            const waUrl = `https://wa.me/${ADMIN_WHATSAPP}?text=${encodeURIComponent(waMsg)}`;
+
+            // Show success then redirect
+            alert("✅ Slot booked successfully! You'll be redirected to WhatsApp to confirm.");
+            window.open(waUrl, '_blank');
         };
     }
 });
@@ -124,7 +159,8 @@ window.openDrawer = (id) => {
     const s = allSites.find(x => x.id === id);
     if (!s) return;
     const bookings = allBookings.filter(b => b.siteId === id);
-    const isClosed = s.aDate < getToday();
+    const isTimerExpired = s.aTimerEnd ? Date.now() >= new Date(s.aTimerEnd).getTime() : false;
+    const isClosed = s.aDate < getToday() || isTimerExpired;
 
     // Create the Slots HTML
     let slotsHTML = '';
@@ -192,7 +228,7 @@ window.openDrawer = (id) => {
             ${s.aTeamName ? `<div style="margin-bottom:10px;"><span style="background:#f1f2f6; color:#333; padding:4px 10px; border-radius:6px; font-size:0.85rem; font-weight:600;">Team ${s.aTeamName}</span></div>` : ''}
             
             <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin:15px 0;">
-                <div style="background:#f8f9fa; padding:10px; border-radius:10px;"><small style="color:#666">Wage</small><div style="font-weight:700">₹${s.aWage}</div></div>
+                ${s.aWage ? `<div style="background:#f8f9fa; padding:10px; border-radius:10px;"><small style="color:#666">Wage</small><div style="font-weight:700">₹${s.aWage}</div></div>` : ''}
                 <div style="background:#f8f9fa; padding:10px; border-radius:10px;"><small style="color:#666">Time</small><div style="font-weight:700">${s.aTime}</div></div>
                 ${s.aGuests ? `<div style="background:#f8f9fa; padding:10px; border-radius:10px;"><small style="color:#666">Guest Count</small><div style="font-weight:700">👥 ${s.aGuests}</div></div>` : ''}
                 <div style="background:#f8f9fa; padding:10px; border-radius:10px;"><small style="color:#666">Status</small><div style="font-weight:700">${isClosed ? 'CLOSED' : (totalSlots ? `${bookings.length}/${totalSlots} Slots` : `${bookings.length} Booked (Open)`)}</div></div>
@@ -200,13 +236,29 @@ window.openDrawer = (id) => {
             
             <div style="background:#fff9e6; border-left:4px solid #ffcc00; padding:10px; margin-bottom:15px; border-radius:4px;">
                 <strong style="font-size:0.85rem;">Requirements:</strong><br>
-                <span style="font-size:0.9rem;">${s.aReq || 'Standard uniform required.'}</span>
+                <span style="font-size:0.9rem;">${s.aReq || 'Black pant, White shirt, Black shoe, Black belt'}</span>
             </div>
             ${s.aNotes ? `<div style="background:#f8f9fa; padding:15px; border-radius:10px; margin-bottom:15px;">
                 <h4 style="margin:0 0 10px 0;">📌 Notes</h4>
                 <ul style="margin:0; padding-left:20px; font-size:0.9rem; color:#444;">
                     ${s.aNotes.split(/[,\n]+/).map(n => n.trim()).filter(n => n).map(n => `<li style="margin-bottom:6px;">${n}</li>`).join('')}
                 </ul>
+            </div>` : ''}
+
+            ${s.aTimerEnd && !isTimerExpired ? `
+            <div id="drawerCountdown" class="countdown-banner countdown-active">
+                <div class="countdown-icon">⏰</div>
+                <div class="countdown-text">
+                    <span class="countdown-label">Booking closes in</span>
+                    <span id="drawerCountdownValue" class="countdown-value">--:--:--</span>
+                </div>
+            </div>` : ''}
+            ${isTimerExpired && s.aTimerEnd ? `
+            <div class="countdown-banner countdown-expired">
+                <div class="countdown-icon">🔒</div>
+                <div class="countdown-text">
+                    <span class="countdown-label">Booking period has ended</span>
+                </div>
             </div>` : ''}
 
             <h3 style="margin-top:20px; border-top:1px solid #eee; padding-top:15px; font-size:1.1rem;">Staff Selection</h3>
@@ -218,6 +270,12 @@ window.openDrawer = (id) => {
     document.getElementById('siteDrawer').classList.add('active');
     document.getElementById('drawerOverlay').classList.add('active');
     document.body.style.overflow = 'hidden';
+
+    // Start countdown timer for drawer if applicable
+    clearAllTimerIntervals();
+    if (s.aTimerEnd && !isTimerExpired) {
+        startDrawerCountdown(s.aTimerEnd);
+    }
 };
 
 window.closeDrawer = () => {
@@ -293,8 +351,18 @@ function renderClient() {
         grouped[cat].forEach(site => {
             const bookings = allBookings.filter(b => b.siteId === site.id);
             const isFull = site.aSlots ? bookings.length >= site.aSlots : false; // unlimited = never full
-            const isClosed = site.aDate < todayStr;
-            let banner = isClosed ? '<div class="full-banner" style="background:#000">CLOSED</div>' : (isFull ? '<div class="full-banner">FULL</div>' : '');
+            const siteTimerExpired = site.aTimerEnd ? Date.now() >= new Date(site.aTimerEnd).getTime() : false;
+            const isClosed = site.aDate < todayStr || siteTimerExpired;
+            let banner = isClosed ? (siteTimerExpired && site.aDate >= todayStr ? '<div class="full-banner" style="background:linear-gradient(135deg,#e17055,#d63031)">⏰ BOOKING CLOSED</div>' : '<div class="full-banner" style="background:#000">CLOSED</div>') : (isFull ? '<div class="full-banner">FULL</div>' : '');
+
+            // Add countdown badge on card if timer is active
+            let countdownBadge = '';
+            if (site.aTimerEnd && !siteTimerExpired && !isFull && site.aDate >= todayStr) {
+                const remaining = getTimeRemaining(site.aTimerEnd);
+                if (remaining) {
+                    countdownBadge = `<div class="card-countdown-badge"><span class="timer-icon-spin">⏳</span> ${remaining}</div>`;
+                }
+            }
             const teamBadge = site.aTeamName ? `<div style="margin-top:6px;"><span style="background:#f1f2f6; color:#333; padding:3px 8px; border-radius:4px; font-size:0.75rem; display:inline-block; font-weight:600;">Team: ${site.aTeamName}</span></div>` : '';
             // Site-card: just show image, no map link (clicking card opens drawer)
             const mediaHTML = renderMedia(site.aImg);
@@ -302,11 +370,11 @@ function renderClient() {
             const card = document.createElement('div');
             card.className = 'site-card';
             card.innerHTML = `
-                <div class="media-container">${mediaHTML}${banner}</div>
+                <div class="media-container">${mediaHTML}${banner}${countdownBadge}</div>
                 <div class="card-body">
                     <div style="display:flex; justify-content:space-between; align-items:center;">
                         <h3 style="margin:0; font-size:1.1rem;">${site.aSitename}</h3>
-                        <span class="wage-badge" style="background:var(--primary); color:white; padding:4px 8px; border-radius:6px; font-size:0.8rem;">₹${site.aWage}</span>
+                        ${site.aWage ? `<span class="wage-badge" style="background:var(--primary); color:white; padding:4px 8px; border-radius:6px; font-size:0.8rem;">₹${site.aWage}</span>` : ''}
                     </div>
                     ${teamBadge}
                     <div style="margin-top:10px; font-size:0.85rem; color:#666; display:flex; flex-direction:column; gap:4px;">
@@ -551,19 +619,32 @@ window.manualAddUser = async (siteId) => {
 };
 
 window.publishSite = async () => {
+    const slotsVal = document.getElementById('aSlots').value;
+    if (!slotsVal || parseInt(slotsVal) < 1) return alert('Slots field is required!');
+
+    // Calculate timer end from duration inputs
+    const timerHours = parseInt(document.getElementById('aTimerHours')?.value) || 0;
+    const timerMins = parseInt(document.getElementById('aTimerMins')?.value) || 0;
+    let timerEndValue = '';
+    if (timerHours > 0 || timerMins > 0) {
+        const endTime = new Date(Date.now() + (timerHours * 3600000) + (timerMins * 60000));
+        timerEndValue = endTime.toISOString();
+    }
+
     const data = {
         aSitename: document.getElementById('aSitename').value,
         aDate: document.getElementById('aDate').value,
         aPlaceName: document.getElementById('aPlaceName').value,
-        aWage: document.getElementById('aWage').value,
-        aSlots: document.getElementById('aSlots').value ? parseInt(document.getElementById('aSlots').value) : null,
+        aWage: document.getElementById('aWage').value || '',
+        aSlots: parseInt(slotsVal),
         aTime: document.getElementById('aTime').value,
         aGuests: document.getElementById('aGuests').value || '',
         aMapLink: document.getElementById('aMapLink').value,
         aImg: document.getElementById('aImg').value,
         aTeamName: document.getElementById('aTeamName') ? document.getElementById('aTeamName').value : '',
-        aReq: document.getElementById('aReq') ? document.getElementById('aReq').value : '',
-        aNotes: document.getElementById('aNotes') ? document.getElementById('aNotes').value : ''
+        aReq: document.getElementById('aReq') ? (document.getElementById('aReq').value || 'Black pant, white shirt, black shoe, black belt') : 'Black pant, white shirt, black shoe, black belt',
+        aNotes: document.getElementById('aNotes') ? document.getElementById('aNotes').value : '',
+        aTimerEnd: timerEndValue
     };
     const id = document.getElementById('editId').value;
     if (id) await updateDoc(doc(db, "sites", id), data);
@@ -574,6 +655,8 @@ window.publishSite = async () => {
     document.querySelectorAll('.stunning-input').forEach(i => i.value = "");
     if (document.getElementById('aReq')) document.getElementById('aReq').value = "";
     if (document.getElementById('aNotes')) document.getElementById('aNotes').value = "";
+    if (document.getElementById('aTimerHours')) document.getElementById('aTimerHours').value = "";
+    if (document.getElementById('aTimerMins')) document.getElementById('aTimerMins').value = "";
     document.getElementById('submitBtn').innerText = "Publish Site";
     alert("Saved Successfully!");
 };
@@ -593,6 +676,68 @@ window.startEdit = (id) => {
     if (document.getElementById('aTeamName')) document.getElementById('aTeamName').value = s.aTeamName || '';
     if (document.getElementById('aReq')) document.getElementById('aReq').value = s.aReq || '';
     if (document.getElementById('aNotes')) document.getElementById('aNotes').value = s.aNotes || '';
+    // Show remaining time in timer fields when editing
+    if (s.aTimerEnd && document.getElementById('aTimerHours')) {
+        const remaining = new Date(s.aTimerEnd).getTime() - Date.now();
+        if (remaining > 0) {
+            document.getElementById('aTimerHours').value = Math.floor(remaining / 3600000);
+            document.getElementById('aTimerMins').value = Math.floor((remaining % 3600000) / 60000);
+        } else {
+            document.getElementById('aTimerHours').value = '';
+            document.getElementById('aTimerMins').value = '';
+        }
+    } else {
+        if (document.getElementById('aTimerHours')) document.getElementById('aTimerHours').value = '';
+        if (document.getElementById('aTimerMins')) document.getElementById('aTimerMins').value = '';
+    }
     document.getElementById('submitBtn').innerText = "Update Site";
     window.scrollTo(0, 0);
 };
+
+// --- COUNTDOWN TIMER HELPERS ---
+function clearAllTimerIntervals() {
+    activeTimerIntervals.forEach(id => clearInterval(id));
+    activeTimerIntervals = [];
+}
+
+function getTimeRemaining(timerEnd) {
+    const diff = new Date(timerEnd).getTime() - Date.now();
+    if (diff <= 0) return null;
+    const h = Math.floor(diff / 3600000);
+    const m = Math.floor((diff % 3600000) / 60000);
+    const sec = Math.floor((diff % 60000) / 1000);
+    if (h > 0) return `${h}h ${m}m`;
+    if (m > 0) return `${m}m ${sec}s`;
+    return `${sec}s`;
+}
+
+function startDrawerCountdown(timerEnd) {
+    const el = document.getElementById('drawerCountdownValue');
+    if (!el) return;
+    const tick = () => {
+        const remaining = getTimeRemaining(timerEnd);
+        if (!remaining) {
+            el.textContent = 'EXPIRED';
+            clearAllTimerIntervals();
+            // Re-render drawer to show locked state
+            if (currentOpenSiteId) window.openDrawer(currentOpenSiteId);
+            return;
+        }
+        el.textContent = remaining;
+        // Add urgency class when < 5 min
+        const diff = new Date(timerEnd).getTime() - Date.now();
+        const banner = document.getElementById('drawerCountdown');
+        if (banner) {
+            if (diff < 300000) banner.classList.add('countdown-urgent');
+            else banner.classList.remove('countdown-urgent');
+        }
+    };
+    tick();
+    const intervalId = setInterval(tick, 1000);
+    activeTimerIntervals.push(intervalId);
+}
+
+// Refresh card countdown badges every 30s
+setInterval(() => {
+    if (document.getElementById('sitesGrid')) renderClient();
+}, 30000);
