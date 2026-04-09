@@ -366,3 +366,101 @@ footer {
     border-color: var(--primary);
     outline: none;
 }
+
+/* --- Countdown Timer Styles --- */
+.countdown-banner {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 14px 18px;
+    border-radius: 14px;
+    margin: 15px 0;
+    font-weight: 600;
+}
+
+.countdown-active {
+    background: linear-gradient(135deg, #dfe6e9, #b2bec3);
+    color: #2d3436;
+    animation: countdownPulse 2s ease-in-out infinite;
+}
+
+.countdown-expired {
+    background: linear-gradient(135deg, #ffeaa7, #fab1a0);
+    color: #d63031;
+}
+
+.countdown-urgent {
+    background: linear-gradient(135deg, #ff7675, #d63031) !important;
+    color: #fff !important;
+    animation: countdownUrgent 0.8s ease-in-out infinite;
+}
+
+.countdown-icon {
+    font-size: 1.6rem;
+    flex-shrink: 0;
+}
+
+.countdown-text {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.countdown-label {
+    font-size: 0.78rem;
+    opacity: 0.8;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.countdown-value {
+    font-size: 1.25rem;
+    font-weight: 800;
+    letter-spacing: 1px;
+    font-variant-numeric: tabular-nums;
+}
+
+.card-countdown-badge {
+    position: absolute;
+    bottom: 10px;
+    right: 10px;
+    background: linear-gradient(135deg, rgba(9,132,227,0.85), rgba(0,184,148,0.85));
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    color: #fff;
+    padding: 6px 14px;
+    border-radius: 20px;
+    font-size: 0.78rem;
+    font-weight: 700;
+    z-index: 5;
+    pointer-events: none;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.25);
+    animation: countdownPulse 2.5s ease-in-out infinite;
+}
+
+.timer-icon-spin {
+    display: inline-block;
+    animation: timerSpin 2s ease-in-out infinite;
+    font-size: 0.9rem;
+}
+
+@keyframes timerSpin {
+    0% { transform: rotate(0deg); }
+    25% { transform: rotate(180deg); }
+    50% { transform: rotate(180deg); }
+    75% { transform: rotate(360deg); }
+    100% { transform: rotate(360deg); }
+}
+
+@keyframes countdownPulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.85; }
+}
+
+@keyframes countdownUrgent {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.01); box-shadow: 0 0 20px rgba(214, 48, 49, 0.3); }
+}
