@@ -38,16 +38,22 @@
                 <input type="text" id="aSitename" class="stunning-input" placeholder="Auditorium/Site Name">
                 <input type="date" id="aDate" class="stunning-input">
                 <input type="text" id="aPlaceName" class="stunning-input" placeholder="Place">
-                <input type="text" id="aWage" class="stunning-input" placeholder="Wage (e.g. 500)">
-                <input type="number" id="aSlots" class="stunning-input" placeholder="Slots (Optional)">
+                <input type="text" id="aWage" class="stunning-input" placeholder="Wage (Optional)">
+                <input type="number" id="aSlots" class="stunning-input" placeholder="Slots (Required)" required>
                 <input type="text" id="aTime" class="stunning-input" placeholder="Time (e.g. 8AM–4PM)">
                 <input type="text" id="aGuests" class="stunning-input" placeholder="Guest Count (Optional)">
                 <input type="text" id="aMapLink" class="stunning-input" placeholder="Google Map Link">
                 <input type="text" id="aImg" class="stunning-input" placeholder="Image URL (Optional)">
                 <input type="text" id="aTeamName" class="stunning-input" placeholder="Team Name (Optional)">
+                <div style="position:relative; display:flex; gap:6px; align-items:flex-end;">
+                    <label style="font-size:0.75rem; color:#888; position:absolute; top:-8px; left:12px; background:#f9fbfd; padding:0 4px; z-index:1;">Booking Timer (Optional)</label>
+                    <input type="number" id="aTimerHours" class="stunning-input" placeholder="Hrs" min="0" max="72" style="padding-top:14px; flex:1;">
+                    <span style="font-weight:700; padding-bottom:12px;">:</span>
+                    <input type="number" id="aTimerMins" class="stunning-input" placeholder="Mins" min="0" max="59" style="padding-top:14px; flex:1;">
+                </div>
             </div>
             <textarea id="aReq" class="stunning-input stunning-textarea"
-                placeholder="Requirements (e.g. White shirt, black pant)"></textarea>
+                placeholder="Requirements (Optional — defaults shown)">Black pant, white shirt, black shoe, black belt</textarea>
             <textarea id="aNotes" class="stunning-input stunning-textarea"
                 placeholder="Event Notes — one bullet point per line (Optional)"></textarea>
             <div style="margin-top:20px; display:flex; gap:10px; flex-wrap:wrap;">
