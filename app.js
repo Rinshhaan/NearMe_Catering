@@ -48,6 +48,16 @@ const formatDisplayDate = (dateStr) => {
     return `${day}-${month}-${year}`;
 };
 
+const formatAMPM = (time24) => {
+    if (!time24) return '';
+    let [hours, minutes] = time24.split(':');
+    hours = parseInt(hours, 10);
+    const ampm = hours >= 12 ? 'PM' : 'AM';
+    hours = hours % 12;
+    hours = hours ? hours : 12;
+    return `${hours}:${minutes} ${ampm}`;
+};
+
 const getCategorizedLabel = (dateStr) => {
     const today = new Date(getToday());
     const target = new Date(dateStr);
@@ -94,6 +104,7 @@ onSnapshot(collection(db, "bookings"), (snap) => {
 function updateUI() {
     if (document.getElementById('sitesGrid')) renderClient();
     if (document.getElementById('masterViewContainer')) renderAdmin();
+    if (document.getElementById('attendanceViewContainer')) renderAttendance();
 }
 
 // --- INITIALIZATION ---
@@ -123,7 +134,7 @@ document.addEventListener('DOMContentLoaded', () => {
             }
 
             await addDoc(collection(db, "bookings"), {
-                siteId: window.currentSiteId, uName: name, uPhone: phone, uPhone2: phone2, uPlace: place, paid: false, notes: ""
+                siteId: window.currentSiteId, uName: name, uPhone: phone, uPhone2: phone2, uPlace: place, paid: false, notes: "", fine: "", uniform: false, attendanceTime: "", uniformboy: false, subboy: false
             });
 
             document.getElementById('regPopup').style.display = 'none';
@@ -464,14 +475,18 @@ function renderAdmin() {
                     </div>
                 </div>
                 <div style="overflow-x:auto; border:1px solid #eee; border-radius:8px;">
-                    <table style="width:100%; min-width:680px; border-collapse:collapse;">
+                    <table style="width:100%; min-width:800px; border-collapse:collapse;">
                         <thead style="background:#f4f4f4;">
                             <tr>
                                 <th style="padding:10px; text-align:left;">Staff</th>
                                 <th style="padding:10px; text-align:left;">Place</th>
-                                <th style="padding:10px; text-align:center;">Att.</th>
+                                <th style="padding:10px; text-align:center;">Att. Time</th>
+                                <th style="padding:10px; text-align:center;">Uniform</th>
+                                <th style="padding:10px; text-align:center;">U.Boy</th>
+                                <th style="padding:10px; text-align:center;">S.Boy</th>
                                 <th style="padding:10px; text-align:center;">Paid</th>
-                                <th style="padding:10px;">Notes/Fines</th>
+                                <th style="padding:10px;">Fine</th>
+                                <th style="padding:10px;">Notes</th>
                                 <th style="padding:10px; text-align:center;">Action</th>
                             </tr>
                         </thead>
@@ -490,14 +505,26 @@ function renderAdmin() {
                                         <td style="padding:8px; min-width:110px;">
                                             <input type="text" value="${draft.uPlace || ''}" placeholder="Place" oninput="window.editDraft.uPlace=this.value" style="width:100%; border:1px solid #0984e3; border-radius:4px; padding:4px 6px; font-size:0.85rem;">
                                         </td>
+                                        <td style="padding:8px; text-align:center; min-width:90px;">
+                                            <input type="time" value="${draft.attendanceTime || ''}" onchange="window.editDraft.attendanceTime=this.value" style="width:100%; border:1px solid #0984e3; border-radius:4px; padding:4px; font-size:0.8rem;">
+                                        </td>
                                         <td style="padding:8px; text-align:center;">
-                                            <input type="checkbox" ${draft.attendance ? 'checked' : ''} onchange="window.editDraft.attendance=this.checked" style="transform:scale(1.2);">
+                                            <input type="checkbox" ${draft.uniform ? 'checked' : ''} onchange="window.editDraft.uniform=this.checked" style="transform:scale(1.2);">
+                                        </td>
+                                        <td style="padding:8px; text-align:center;">
+                                            <input type="checkbox" ${draft.uniformboy ? 'checked' : ''} onchange="window.editDraft.uniformboy=this.checked" style="transform:scale(1.2);">
+                                        </td>
+                                        <td style="padding:8px; text-align:center;">
+                                            <input type="checkbox" ${draft.subboy ? 'checked' : ''} onchange="window.editDraft.subboy=this.checked" style="transform:scale(1.2);">
                                         </td>
                                         <td style="padding:8px; text-align:center;">
                                             <input type="checkbox" ${draft.paid ? 'checked' : ''} onchange="window.editDraft.paid=this.checked" style="transform:scale(1.2);">
                                         </td>
-                                        <td style="padding:8px; min-width:130px;">
-                                            <input type="text" value="${draft.notes || ''}" placeholder="Fine/Note" oninput="window.editDraft.notes=this.value" style="width:100%; border:1px solid #0984e3; border-radius:4px; padding:4px 6px; font-size:0.85rem;">
+                                        <td style="padding:8px; min-width:80px;">
+                                            <input type="text" value="${draft.fine || ''}" placeholder="Fine" oninput="window.editDraft.fine=this.value" style="width:100%; border:1px solid #0984e3; border-radius:4px; padding:4px 6px; font-size:0.85rem;">
+                                        </td>
+                                        <td style="padding:8px; min-width:120px;">
+                                            <input type="text" value="${draft.notes || ''}" placeholder="Note" oninput="window.editDraft.notes=this.value" style="width:100%; border:1px solid #0984e3; border-radius:4px; padding:4px 6px; font-size:0.85rem;">
                                         </td>
                                         <td style="padding:8px; text-align:center; min-width:80px;">
                                             <button onclick="window.saveRowEdit()" style="background:#00b894; color:white; border:none; padding:5px 8px; border-radius:4px; cursor:pointer; font-weight:bold; margin-bottom:6px; width:100%; font-size:0.8rem;">Save</button>
@@ -513,12 +540,20 @@ function renderAdmin() {
                                             ${b.uPhone2 ? `<br><small style="color:gray;">Alt: ${b.uPhone2}</small>` : ''}
                                         </td>
                                         <td style="padding:10px; font-size:0.9rem;">${b.uPlace || '-'}</td>
+                                        <td style="padding:10px; text-align:center; font-size:0.9rem; font-weight:bold; color:var(--primary);">${formatAMPM(b.attendanceTime) || '-'}</td>
                                         <td style="padding:10px; text-align:center;">
-                                            <input type="checkbox" disabled ${b.attendance ? 'checked' : ''}>
+                                            <input type="checkbox" disabled ${b.uniform ? 'checked' : ''}>
+                                        </td>
+                                        <td style="padding:10px; text-align:center;">
+                                            <input type="checkbox" disabled ${b.uniformboy ? 'checked' : ''}>
+                                        </td>
+                                        <td style="padding:10px; text-align:center;">
+                                            <input type="checkbox" disabled ${b.subboy ? 'checked' : ''}>
                                         </td>
                                         <td style="padding:10px; text-align:center;">
                                             <input type="checkbox" disabled ${b.paid ? 'checked' : ''}>
                                         </td>
+                                        <td style="padding:10px; font-size:0.85rem; color:#d63031;">${b.fine ? b.fine : '<span style="color:#ccc;">-</span>'}</td>
                                         <td style="padding:10px; font-size:0.85rem; color:#444;">${b.notes ? b.notes : '<span style="color:#ccc;">-</span>'}</td>
                                         <td style="padding:8px; text-align:center; min-width:80px;">
                                             <button onclick="window.startRowEdit('${b.id}')" style="background:var(--primary); color:white; border:none; padding:5px 12px; border-radius:4px; cursor:pointer; margin-bottom:8px; font-size:0.8rem; width:100%;">Edit</button>
@@ -544,7 +579,7 @@ window.startRowEdit = (id) => {
     const b = allBookings.find(x => x.id === id);
     if (!b) return;
     window.editingRowId = id;
-    window.editDraft = { uName: b.uName, uPhone: b.uPhone, uPhone2: b.uPhone2, uPlace: b.uPlace, paid: !!b.paid, notes: b.notes, attendance: !!b.attendance };
+    window.editDraft = { uName: b.uName, uPhone: b.uPhone, uPhone2: b.uPhone2 || '', uPlace: b.uPlace, paid: !!b.paid, notes: b.notes || '', attendanceTime: b.attendanceTime || '', uniform: !!b.uniform, fine: b.fine || '', uniformboy: !!b.uniformboy, subboy: !!b.subboy };
     renderAdmin();
 };
 
@@ -564,30 +599,47 @@ window.saveRowEdit = async () => {
 };
 
 window.copyStaffList = (siteId, siteName) => {
+    const site = allSites.find(s => s.id === siteId);
     const bookings = allBookings.filter(b => b.siteId === siteId);
     if (!bookings.length) { alert('No staff booked yet.'); return; }
-    const col1 = 'Name';
-    const col2 = 'WhatsApp No';
-    const col3 = 'Alt No';
-    const sep = ' | ';
-    const divider = '-'.repeat(60);
-    const header = `${col1.padEnd(20)}${sep}${col2.padEnd(15)}${sep}${col3}`;
-    const rows = bookings.map((b, i) => {
-        const name = (b.uName || 'Unknown').padEnd(20);
-        const phone = (b.uPhone || '-').padEnd(15);
-        const phone2 = b.uPhone2 || '-';
-        return `${i + 1}. ${name}${sep}${phone}${sep}${phone2}`;
-    }).join('\n');
-    const text = `📋 Staff List — ${siteName}\n${divider}\n${header}\n${divider}\n${rows}\n${divider}\nTotal: ${bookings.length} staff`;
-    navigator.clipboard.writeText(text).then(() => alert('✅ Staff list copied!')).catch(() => {
-        // fallback for older browsers
+    
+    const sLocation = site && site.aPlaceName ? site.aPlaceName : 'N/A';
+    const sTime = site && site.aTime ? site.aTime : 'N/A';
+    const sMap = site && site.aMapLink ? site.aMapLink : 'N/A';
+
+    let text = `Site: ${siteName}\nLocation: ${sLocation}\nTime: ${sTime}\n`;
+    if (sMap !== 'N/A') text += `Map: ${sMap}\n`;
+    text += `\nStaff List:\n`;
+
+    bookings.forEach((b, i) => {
+        let row = `${i + 1}. ${b.uName || 'Unknown'} - ${b.uPhone || '-'}`;
+        if (b.uPhone2) row += ` (Alt: ${b.uPhone2})`;
+        if (b.uPlace) row += ` - ${b.uPlace}`;
+        
+        let details = [];
+        if (b.attendanceTime) details.push(`Att: ${formatAMPM(b.attendanceTime)}`);
+        if (b.uniform) details.push(`Uniform`);
+        if (b.uniformboy) details.push(`U.Boy`);
+        if (b.subboy) details.push(`S.Boy`);
+        if (b.paid) details.push(`Paid`);
+        if (b.fine) details.push(`Fine: ${b.fine}`);
+        if (b.notes && b.notes !== "Added by Admin") details.push(`Notes: ${b.notes}`);
+        
+        if (details.length > 0) {
+            row += `\n   ↳ ${details.join(' | ')}`;
+        }
+        text += row + `\n`;
+    });
+    text += `\nTotal: ${bookings.length} staff`;
+
+    navigator.clipboard.writeText(text).then(() => alert('Staff list copied!')).catch(() => {
         const el = document.createElement('textarea');
         el.value = text;
         document.body.appendChild(el);
         el.select();
         document.execCommand('copy');
         document.body.removeChild(el);
-        alert('✅ Staff list copied!');
+        alert('Staff list copied!');
     });
 };
 
@@ -595,8 +647,14 @@ window.checkPin = () => {
     const pin = document.getElementById('pinInput').value;
     if (pin === "8078at") {
         document.getElementById('authOverlay').style.display = 'none';
-        document.getElementById('adminMain').style.display = 'block';
-        renderAdmin();
+        if (document.getElementById('adminMain')) {
+            document.getElementById('adminMain').style.display = 'block';
+            renderAdmin();
+        }
+        if (document.getElementById('attendanceMain')) {
+            document.getElementById('attendanceMain').style.display = 'block';
+            renderAttendance();
+        }
     } else { alert("Wrong PIN"); }
 };
 
@@ -611,10 +669,9 @@ window.manualAddUser = async (siteId) => {
     if (!name) return;
     const phone = prompt("Enter Contact Number:");
     if (!phone) return;
-    const place = prompt("Enter Place/Location:");
-    if (!place) return;
+    const place = prompt("Enter Place/Location (Optional):");
     await addDoc(collection(db, "bookings"), {
-        siteId: siteId, uName: name, uPhone: phone, uPhone2: "", uPlace: place, paid: false, notes: "Added by Admin"
+        siteId: siteId, uName: name, uPhone: phone, uPhone2: "", uPlace: place || "", paid: false, notes: "Added by Admin", attendanceTime: "", uniform: false, fine: "", uniformboy: false, subboy: false
     });
 };
 
@@ -694,60 +751,266 @@ window.startEdit = (id) => {
     window.scrollTo(0, 0);
 };
 
-// --- COUNTDOWN TIMER HELPERS ---
-function clearAllTimerIntervals() {
-    activeTimerIntervals.forEach(id => clearInterval(id));
-    activeTimerIntervals = [];
-}
+// --- ATTENDANCE RENDERING ---
+window.filterAttendanceSites = () => renderAttendance();
 
-function getTimeRemaining(timerEnd) {
-    const diff = new Date(timerEnd).getTime() - Date.now();
-    if (diff <= 0) return null;
-    const h = Math.floor(diff / 3600000);
-    const m = Math.floor((diff % 3600000) / 60000);
-    const sec = Math.floor((diff % 60000) / 1000);
-    if (h > 0) return `${h}h ${m}m ${sec}s`;
-    if (m > 0) return `${m}m ${sec}s`;
-    return `${sec}s`;
-}
+function renderAttendance() {
+    const container = document.getElementById('attendanceViewContainer');
+    if (!container) return;
+    container.innerHTML = '';
 
-function startDrawerCountdown(timerEnd) {
-    const el = document.getElementById('drawerCountdownValue');
-    if (!el) return;
-    const tick = () => {
-        const remaining = getTimeRemaining(timerEnd);
-        if (!remaining) {
-            el.textContent = 'EXPIRED';
-            clearAllTimerIntervals();
-            // Re-render drawer to show locked state
-            if (currentOpenSiteId) window.openDrawer(currentOpenSiteId);
+    const searchVal = document.getElementById('attendanceSearchBar') ? document.getElementById('attendanceSearchBar').value.toLowerCase().trim() : '';
+    const todayStr = getToday();
+    const todayDate = new Date(todayStr);
+
+    const limitState = window.attendanceDisplayLimit || 'last_week';
+    let filteredSites = [];
+
+    allSites.forEach(s => {
+        const bookings = allBookings.filter(b => b.siteId === s.id);
+        if (searchVal) {
+            const mSite = (s.aSitename || '').toLowerCase().includes(searchVal)
+                || (s.aPlaceName || '').toLowerCase().includes(searchVal)
+                || (s.aTeamName || '').toLowerCase().includes(searchVal);
+            const mBooking = bookings.some(b =>
+                (b.uName || '').toLowerCase().includes(searchVal) ||
+                (b.uPhone || '').includes(searchVal) ||
+                (b.uPhone2 || '').includes(searchVal) ||
+                (b.uPlace || '').toLowerCase().includes(searchVal)
+            );
+            if (!mSite && !mBooking) return; // skip
+            filteredSites.push(s);
             return;
         }
-        el.textContent = remaining;
-        // Add urgency class when < 5 min
-        const diff = new Date(timerEnd).getTime() - Date.now();
-        const banner = document.getElementById('drawerCountdown');
-        if (banner) {
-            if (diff < 300000) banner.classList.add('countdown-urgent');
-            else banner.classList.remove('countdown-urgent');
-        }
-    };
-    tick();
-    const intervalId = setInterval(tick, 1000);
-    activeTimerIntervals.push(intervalId);
-}
 
-// Live-update card countdown badges every second (no full re-render)
-setInterval(() => {
-    document.querySelectorAll('.card-countdown-badge[data-timer-end]').forEach(badge => {
-        const timerEnd = badge.getAttribute('data-timer-end');
-        const remaining = getTimeRemaining(timerEnd);
-        const textEl = badge.querySelector('.card-timer-text');
-        if (!remaining) {
-            // Timer expired — re-render to show locked state
-            if (document.getElementById('sitesGrid')) renderClient();
-            return;
+        const siteDate = new Date(s.aDate);
+        const daysDiff = Math.floor((todayDate - siteDate) / (1000 * 3600 * 24));
+
+        if (daysDiff <= 0) {
+            filteredSites.push(s);
+        } else {
+            if (limitState === 'last_week' && daysDiff <= 7) filteredSites.push(s);
+            else if (limitState === 'current_month' && daysDiff <= 31) filteredSites.push(s);
+            else if (limitState === 'all') filteredSites.push(s);
         }
-        if (textEl) textEl.textContent = remaining;
     });
-}, 1000);
+
+    const grouped = {};
+    filteredSites.forEach(s => {
+        const cat = getCategorizedLabel(s.aDate);
+        if (!grouped[cat]) grouped[cat] = [];
+        grouped[cat].push(s);
+    });
+
+    Object.keys(grouped).forEach(cat => {
+        const header = document.createElement('div');
+        header.className = 'date-section-header';
+        header.style.margin = "25px 0 10px 0";
+        header.innerHTML = cat;
+        container.appendChild(header);
+
+        grouped[cat].forEach(s => {
+            const bookings = allBookings.filter(b => b.siteId === s.id);
+            const card = document.createElement('div');
+            card.className = 'glass-card admin-card';
+            card.style.marginBottom = "20px";
+            card.innerHTML = `
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; flex-wrap:wrap;">
+                    <div>
+                        <h3 style="margin:0;">${s.aSitename} (${bookings.length}/${s.aSlots ? s.aSlots : '∞'})</h3>
+                        <small>📅 ${formatDisplayDate(s.aDate)}</small>
+                    </div>
+                </div>
+                <div style="overflow-x:auto; border:1px solid #eee; border-radius:8px;">
+                    <table style="width:100%; min-width:600px; border-collapse:collapse;">
+                        <thead style="background:#f4f4f4;">
+                            <tr>
+                                <th style="padding:10px; text-align:left;">Staff</th>
+                                <th style="padding:10px; text-align:center;">Att. Time</th>
+                                <th style="padding:10px; text-align:center;">Att. Close</th>
+                                <th style="padding:10px; text-align:center;">Uniform</th>
+                                <th style="padding:10px; text-align:center;">U.Boy</th>
+                                <th style="padding:10px; text-align:center;">S.Boy</th>
+                                <th style="padding:10px;">Fine</th>
+                                <th style="padding:10px; text-align:center;">Action</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${bookings.map(b => {
+                const isEditing = window.editingAttendanceRowId === b.id;
+                if (isEditing) {
+                    const draft = window.editAttendanceDraft;
+                    return `
+                                    <tr style="border-bottom:1px solid #eee; background:#f9fbfe;">
+                                        <td style="padding:10px;">
+                                            <strong style="color:var(--text);">${b.uName || 'Unknown'}</strong><br>
+                                            <small style="color:#555;">${b.uPhone || '-'}</small>
+                                        </td>
+                                        <td style="padding:8px; text-align:center; min-width:100px;">
+                                            <input type="time" value="${draft.attendanceTime || ''}" onchange="window.editAttendanceDraft.attendanceTime=this.value" style="width:100%; border:1px solid #0984e3; border-radius:4px; padding:6px; font-size:0.9rem;">
+                                        </td>
+                                        <td style="padding:8px; text-align:center; min-width:100px;">
+                                            <input type="time" value="${draft.attendanceCloseTime || ''}" onchange="window.editAttendanceDraft.attendanceCloseTime=this.value" style="width:100%; border:1px solid #0984e3; border-radius:4px; padding:6px; font-size:0.9rem;">
+                                        </td>
+                                        <td style="padding:8px; text-align:center;">
+                                            <input type="checkbox" ${draft.uniform ? 'checked' : ''} onchange="window.editAttendanceDraft.uniform=this.checked" style="transform:scale(1.5);">
+                                        </td>
+                                        <td style="padding:8px; text-align:center;">
+                                            <input type="checkbox" ${draft.uniformboy ? 'checked' : ''} onchange="window.editAttendanceDraft.uniformboy=this.checked" style="transform:scale(1.5);">
+                                        </td>
+                                        <td style="padding:8px; text-align:center;">
+                                            <input type="checkbox" ${draft.subboy ? 'checked' : ''} onchange="window.editAttendanceDraft.subboy=this.checked" style="transform:scale(1.5);">
+                                        </td>
+                                        <td style="padding:8px; min-width:100px;">
+                                            <input type="text" value="${draft.fine || ''}" placeholder="Fine Amount/Note" oninput="window.editAttendanceDraft.fine=this.value" style="width:100%; border:1px solid #0984e3; border-radius:4px; padding:6px; font-size:0.9rem;">
+                                        </td>
+                                        <td style="padding:8px; text-align:center; min-width:80px;">
+                                            <button onclick="window.saveAttendanceRowEdit()" style="background:#00b894; color:white; border:none; padding:6px 12px; border-radius:4px; cursor:pointer; font-weight:bold; margin-bottom:6px; width:100%; font-size:0.85rem;">Save</button>
+                                            <button onclick="window.cancelAttendanceRowEdit()" style="background:#eee; color:#333; border:none; padding:6px 12px; border-radius:4px; cursor:pointer; width:100%; font-size:0.85rem;">Cancel</button>
+                                        </td>
+                                    </tr>`;
+                } else {
+                    return `
+                                    <tr style="border-bottom:1px solid #eee;">
+                                        <td style="padding:10px;">
+                                            <strong style="color:var(--text);">${b.uName || 'Unknown'}</strong><br>
+                                            <small style="color:#555;">${b.uPhone || '-'}</small>
+                                        </td>
+                                        <td style="padding:10px; text-align:center; font-size:1rem; font-weight:bold; color:var(--primary);">${formatAMPM(b.attendanceTime) || '<span style="color:#ccc;font-weight:normal;font-size:0.85rem;">Pending</span>'}</td>
+                                        <td style="padding:10px; text-align:center; font-size:1rem; font-weight:bold; color:var(--primary);">${formatAMPM(b.attendanceCloseTime) || '<span style="color:#ccc;font-weight:normal;font-size:0.85rem;">Pending</span>'}</td>
+                                        <td style="padding:10px; text-align:center;">
+                                            <input type="checkbox" disabled ${b.uniform ? 'checked' : ''} style="transform:scale(1.2);">
+                                        </td>
+                                        <td style="padding:10px; text-align:center;">
+                                            <input type="checkbox" disabled ${b.uniformboy ? 'checked' : ''} style="transform:scale(1.2);">
+                                        </td>
+                                        <td style="padding:10px; text-align:center;">
+                                            <input type="checkbox" disabled ${b.subboy ? 'checked' : ''} style="transform:scale(1.2);">
+                                        </td>
+                                        <td style="padding:10px; font-size:0.9rem; color:#d63031; font-weight:bold;">${b.fine ? b.fine : '<span style="color:#ccc;font-weight:normal;">-</span>'}</td>
+                                        <td style="padding:10px; text-align:center;">
+                                            <button onclick="window.startAttendanceRowEdit('${b.id}')" style="background:${(b.attendanceTime && b.attendanceCloseTime) ? '#f1f2f6' : 'var(--primary)'}; color:${(b.attendanceTime && b.attendanceCloseTime) ? '#333' : 'white'}; border:none; padding:8px 16px; border-radius:6px; cursor:pointer; font-weight:bold; font-size:0.85rem; width:100%; border:1px solid ${(b.attendanceTime && b.attendanceCloseTime) ? '#ddd' : 'transparent'};">${(b.attendanceTime && b.attendanceCloseTime) ? 'Edit' : 'Mark Att.'}</button>
+                                        </td>
+                                    </tr>`;
+                }
+            }).join('')}
+                        </tbody>
+                    </table>
+                </div>`;
+                    container.appendChild(card);
+                });
+        });
+
+        const hasMoreBeyondLastWeek = allSites.some(s => Math.floor((todayDate - new Date(s.aDate)) / (1000 * 3600 * 24)) > 7);
+        const hasMoreBeyondMonth = allSites.some(s => Math.floor((todayDate - new Date(s.aDate)) / (1000 * 3600 * 24)) > 31);
+
+        if (!searchVal) {
+            if (limitState === 'last_week' && hasMoreBeyondLastWeek) {
+                const btn = document.createElement('button');
+                btn.innerText = "Show More (Current Month)";
+                btn.onclick = () => { window.attendanceDisplayLimit = 'current_month'; renderAttendance(); };
+                btn.style.cssText = "display:block; width:100%; max-width:300px; margin:30px auto; padding:12px; background:#fff; color:var(--primary); border:1px solid var(--primary); border-radius:50px; font-weight:bold; cursor:pointer;";
+                container.appendChild(btn);
+            } else if (limitState === 'current_month' && hasMoreBeyondMonth) {
+                const btn = document.createElement('button');
+                btn.innerText = "Load More (All Past Events)";
+                btn.onclick = () => { window.attendanceDisplayLimit = 'all'; renderAttendance(); };
+                btn.style.cssText = "display:block; width:100%; max-width:300px; margin:30px auto; padding:12px; background:#fff; color:var(--primary); border:1px solid var(--primary); border-radius:50px; font-weight:bold; cursor:pointer;";
+                container.appendChild(btn);
+            }
+        }
+    }
+
+window.startAttendanceRowEdit = (id) => {
+            const b = allBookings.find(x => x.id === id);
+            if (!b) return;
+            window.editingAttendanceRowId = id;
+
+            // Auto-fill current time if attendance hasn't been marked yet
+            let attTime = b.attendanceTime;
+            let attCloseTime = b.attendanceCloseTime;
+            const now = new Date();
+            const currentTimeStr = String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0');
+
+            if (!attTime) {
+                attTime = currentTimeStr;
+            } else if (!attCloseTime) {
+                attCloseTime = currentTimeStr;
+            }
+
+            window.editAttendanceDraft = { attendanceTime: attTime || '', attendanceCloseTime: attCloseTime || '', uniform: !!b.uniform, fine: b.fine || '', uniformboy: !!b.uniformboy, subboy: !!b.subboy };
+            renderAttendance();
+        };
+
+    window.cancelAttendanceRowEdit = () => {
+        window.editingAttendanceRowId = null;
+        window.editAttendanceDraft = null;
+        renderAttendance();
+    };
+
+    window.saveAttendanceRowEdit = async () => {
+        if (!window.editingAttendanceRowId) return;
+        const id = window.editingAttendanceRowId;
+        const data = window.editAttendanceDraft;
+        window.editingAttendanceRowId = null;
+        window.editAttendanceDraft = null;
+        await window.updateBooking(id, data);
+    };
+
+    // --- COUNTDOWN TIMER HELPERS ---
+    function clearAllTimerIntervals() {
+        activeTimerIntervals.forEach(id => clearInterval(id));
+        activeTimerIntervals = [];
+    }
+
+    function getTimeRemaining(timerEnd) {
+        const diff = new Date(timerEnd).getTime() - Date.now();
+        if (diff <= 0) return null;
+        const h = Math.floor(diff / 3600000);
+        const m = Math.floor((diff % 3600000) / 60000);
+        const sec = Math.floor((diff % 60000) / 1000);
+        if (h > 0) return `${h}h ${m}m ${sec}s`;
+        if (m > 0) return `${m}m ${sec}s`;
+        return `${sec}s`;
+    }
+
+    function startDrawerCountdown(timerEnd) {
+        const el = document.getElementById('drawerCountdownValue');
+        if (!el) return;
+        const tick = () => {
+            const remaining = getTimeRemaining(timerEnd);
+            if (!remaining) {
+                el.textContent = 'EXPIRED';
+                clearAllTimerIntervals();
+                // Re-render drawer to show locked state
+                if (currentOpenSiteId) window.openDrawer(currentOpenSiteId);
+                return;
+            }
+            el.textContent = remaining;
+            // Add urgency class when < 5 min
+            const diff = new Date(timerEnd).getTime() - Date.now();
+            const banner = document.getElementById('drawerCountdown');
+            if (banner) {
+                if (diff < 300000) banner.classList.add('countdown-urgent');
+                else banner.classList.remove('countdown-urgent');
+            }
+        };
+        tick();
+        const intervalId = setInterval(tick, 1000);
+        activeTimerIntervals.push(intervalId);
+    }
+
+    // Live-update card countdown badges every second (no full re-render)
+    setInterval(() => {
+        document.querySelectorAll('.card-countdown-badge[data-timer-end]').forEach(badge => {
+            const timerEnd = badge.getAttribute('data-timer-end');
+            const remaining = getTimeRemaining(timerEnd);
+            const textEl = badge.querySelector('.card-timer-text');
+            if (!remaining) {
+                // Timer expired — re-render to show locked state
+                if (document.getElementById('sitesGrid')) renderClient();
+                return;
+            }
+            if (textEl) textEl.textContent = remaining;
+        });
+    }, 1000);
