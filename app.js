@@ -1,433 +1,1019 @@
-import { db, ref, onValue } from './firebase-config.js';
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+import { getFirestore, collection, addDoc, onSnapshot, query, orderBy, doc, updateDoc, deleteDoc } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
 
-// ── Config ──────────────────────────────────────────────
-const encodedPhone = "OTE4MDc4MjQwMDE4";
-const SECTION_LIMIT = 4; // cards per section
-const BUDGET_MAX = 499;  // ₹ threshold  → Budget Friendly
-const BEAST_MIN = 1000; // ₹ threshold  → Beast Ones
+const firebaseConfig = {
+    apiKey: "AIzaSyCeEYZ52ETdr4WlbBHrANVWMGeunfbS1aw",
+    authDomain: "nearmecatering.firebaseapp.com",
+    projectId: "nearmecatering",
+    storageBucket: "nearmecatering.firebasestorage.app",
+    messagingSenderId: "1089531792392",
+    appId: "1:1089531792392:web:62937c0026adbfcccf15bd"
+};
 
+const app = initializeApp(firebaseConfig);
+const db = getFirestore(app);
 
-// ── DOM refs ────────────────────────────────────────────
-const searchInput = document.getElementById('searchInput');
-const modal = document.getElementById('productModal');
-const closeBtn = document.getElementById('closeModal');
-const carouselEl = document.getElementById('carouselSlides');
+// ⚙️ ADMIN WHATSAPP NUMBER
+const ADMIN_WHATSAPP = "918078240018";
 
+let allSites = [];
+let allBookings = [];
+let currentOpenSiteId = null;
+let activeTimerIntervals = [];
 
-let allProducts = [];
+// --- GEO-BLOCKING ---
+fetch('https://ipapi.co/json/')
+    .then(res => res.json())
+    .then(data => {
+        if (!data.error && data.country_code) {
+            if (data.country_code !== 'IN' || (data.region !== 'Kerala' && data.region !== 'KL')) {
+                document.body.innerHTML = `
+                    <div style="display:flex; height:100vh; width:100vw; justify-content:center; align-items:center; background:#1a1b1e; color:white; font-family:'Plus Jakarta Sans', sans-serif; text-align:center; padding:20px;">
+                        <div>
+                            <h1 style="color:#e74c3c;">Access Restricted 📍</h1>
+                            <p style="color:#a0a0a0; margin-top:10px;">Nearby Caters is currently only available for users in Kerala, India.</p>
+                        </div>
+                    </div>`;
+            }
+        }
+    })
+    .catch(e => console.log('Location check skipped'));
 
-// ── Fullscreen Media Viewer ─────────────────────────────
-const mediaViewer = document.getElementById('mediaViewer');
-const mediaViewerInner = document.getElementById('mediaViewerInner');
-const mediaViewerCaption = document.getElementById('mediaViewerCaption');
+// --- UTILITIES ---
+const getToday = () => new Date().toISOString().split('T')[0];
 
-function openMediaViewer(url, isVideo, caption) {
-    if (!mediaViewer || !mediaViewerInner) return;
-    mediaViewerInner.innerHTML = '';
-    if (isVideo) {
-        const v = document.createElement('video');
-        v.src = url;
-        v.controls = true;
-        v.autoplay = true;
-        v.playsInline = true;
-        v.style.cssText = 'max-width:100%; max-height:85vh; border-radius:12px;';
-        mediaViewerInner.appendChild(v);
-    } else {
-        const img = document.createElement('img');
-        img.src = url;
-        img.alt = caption || 'Full size';
-        img.style.cssText = 'max-width:100%; max-height:85vh; border-radius:12px; object-fit:contain; cursor:zoom-out;';
-        mediaViewerInner.appendChild(img);
+const formatDisplayDate = (dateStr) => {
+    if (!dateStr) return "";
+    const [year, month, day] = dateStr.split('-');
+    return `${day}-${month}-${year}`;
+};
+
+const formatAMPM = (time24) => {
+    if (!time24) return '';
+    let [hours, minutes] = time24.split(':');
+    hours = parseInt(hours, 10);
+    const ampm = hours >= 12 ? 'PM' : 'AM';
+    hours = hours % 12;
+    hours = hours ? hours : 12;
+    return `${hours}:${minutes} ${ampm}`;
+};
+
+const getCategorizedLabel = (dateStr) => {
+    const today = new Date(getToday());
+    const target = new Date(dateStr);
+    const diff = Math.round((today - target) / (1000 * 3600 * 24));
+    if (diff === 0) return "Today";
+    if (diff === -1) return "<span style='background: #fff0f0; color: #d63031; padding: 4px 10px; border-radius: 6px; font-size: 0.85rem; font-weight: 800; border: 1px solid #fadcdc;'>Tomorrow</span>";
+    if (diff === -2) return "<span style='background: #fff0f0; color: #d63031; padding: 4px 10px; border-radius: 6px; font-size: 0.85rem; font-weight: 800; border: 1px solid #fadcdc;'>Day after Tomorrow</span>";
+    if (diff < -2) return "Upcoming";
+    if (diff === 1) return "Yesterday";
+    return formatDisplayDate(dateStr);
+};
+
+const isValidPhone = (p) => {
+    const digits = p.replace(/\D/g, "");
+    return digits.length >= 10 && /^[6-9]\d{9}$/.test(digits.slice(-10));
+};
+
+const renderMedia = (url) => {
+    // Relying on style.css (.media-container img { max-width: 100%, max-height: 100%, object-fit: contain })
+    if (!url) return `<img src="https://via.placeholder.com/400x200?text=Nearby+Caters" style="display:block;">`;
+    if (url.includes("maps.google.com") || url.includes("<iframe")) {
+        let src = url;
+        if (url.includes("<iframe")) {
+            const match = url.match(/src="([^"]+)"/);
+            src = match ? match[1] : '';
+        }
+        return `<iframe src="${src}" style="border:0; width:100%; height:100%;" overflow="hidden" scrolling="no" allowfullscreen="" loading="lazy"></iframe>`;
     }
-    mediaViewerCaption.textContent = caption || '';
-    mediaViewer.style.display = 'flex';
-    document.body.style.overflow = 'hidden';
-}
+    return `<img src="${url}" style="display:block;">`;
+};
 
-function closeMediaViewer() {
-    if (!mediaViewer) return;
-    const v = mediaViewerInner.querySelector('video');
-    if (v) v.pause();
-    mediaViewerInner.innerHTML = '';
-    mediaViewer.style.display = 'none';
-    document.body.style.overflow = '';
-}
-
-document.getElementById('mediaViewerClose')?.addEventListener('click', closeMediaViewer);
-mediaViewer?.addEventListener('click', (e) => { if (e.target === mediaViewer) closeMediaViewer(); });
-document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && mediaViewer?.style.display !== 'none') closeMediaViewer(); });
-
-
-// ============================================================
-// 1.  FIREBASE – fetch all products + sold_out
-// ============================================================
-
-
-const productsRef = ref(db, 'products');
-const soldRef = ref(db, 'sold_out');
-
-let activeItems = [];
-let soldItems = [];
-
-let isProductsLoaded = false;
-let isSoldLoaded = false;
-let isHeroLoaded = false;
-
-function combineAndRender() {
-    if (!isProductsLoaded || !isSoldLoaded || !isHeroLoaded) return;
-
-    allProducts = [...activeItems, ...soldItems];
-    // Sort by timestamp (descending)
-    allProducts.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
-    renderAllSections(allProducts);
-}
-
-onValue(productsRef, (snap) => {
-    isProductsLoaded = true;
-    activeItems = [];
-    const data = snap.val();
-    if (data) {
-        Object.keys(data).reverse().forEach(k =>
-            activeItems.push({ id: k, ...data[k] })
-        );
-    }
-    combineAndRender();
+// --- DATA SYNC ---
+onSnapshot(query(collection(db, "sites"), orderBy("aDate", "desc")), (snap) => {
+    allSites = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    updateUI();
 });
 
-onValue(soldRef, (snap) => {
-    isSoldLoaded = true;
-    soldItems = [];
-    const data = snap.val();
-    if (data) {
-        Object.keys(data).reverse().forEach(k =>
-            soldItems.push({ id: k, ...data[k], stockOut: true, status: 'sold' })
-        );
-    }
-    combineAndRender();
+onSnapshot(collection(db, "bookings"), (snap) => {
+    allBookings = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    updateUI();
+    if (currentOpenSiteId) window.openDrawer(currentOpenSiteId);
 });
 
-// ============================================================
-// 2.  PRICE HELPER
-// ============================================================
-function parsePrice(priceStr) {
-    if (!priceStr) return 0;
-    const n = parseFloat(String(priceStr).replace(/[^\d.]/g, ''));
-    return isNaN(n) ? 0 : n;
+function updateUI() {
+    if (document.getElementById('sitesGrid')) renderClient();
+    if (document.getElementById('masterViewContainer')) renderAdmin();
+    if (document.getElementById('attendanceViewContainer')) renderAttendance();
 }
 
-// ============================================================
-// 3.  CATEGORISE
-// ============================================================
-function categorise(products) {
-    // Recently Added  – first 4 in reversed-key order (includes sold)
-    const recent = products.slice(0, SECTION_LIMIT);
+// --- INITIALIZATION ---
+document.addEventListener('DOMContentLoaded', () => {
+    const confirmBtn = document.getElementById('btnConfirm');
+    if (confirmBtn) {
+        confirmBtn.onclick = async () => {
+            const name = document.getElementById('uName').value.trim();
+            const phone = document.getElementById('uPhone').value.trim();
+            const phone2Element = document.getElementById('uPhone2');
+            const phone2 = phone2Element ? phone2Element.value.trim() : "";
+            const place = document.getElementById('uPlace').value.trim();
 
-    // Filter for sections (we can show sold items in sections now)
-    // Hot Deals – manual tag OR cheaper items
-    const hotMan = products.filter(p => p.section === 'hot');
-    const hotAuto = [...products]
-        .filter(p => p.section !== 'hot' && p.section !== 'budget' && p.section !== 'beast')
-        .sort((a, b) => parsePrice(a.price) - parsePrice(b.price));
-    const hot = [...hotMan, ...hotAuto].slice(0, SECTION_LIMIT);
+            if (!name || !phone || !place) return alert("All fields are required!");
+            if (!isValidPhone(phone)) return alert("Invalid WhatsApp number! Please enter a valid number.");
+            if (phone2 && !isValidPhone(phone2)) return alert("Invalid 2nd WhatsApp number!");
 
-    // Budget Friendly – manual tag OR price ≤ BUDGET_MAX
-    const budgetMan = products.filter(p => p.section === 'budget');
-    const budgetAuto = products.filter(p => p.section !== 'budget' && parsePrice(p.price) <= BUDGET_MAX);
-    const budget = [...budgetMan, ...budgetAuto].slice(0, SECTION_LIMIT);
+            // Check if timer expired before allowing booking
+            const site = allSites.find(x => x.id === window.currentSiteId);
+            if (site && site.aTimerEnd) {
+                const deadline = new Date(site.aTimerEnd).getTime();
+                if (Date.now() >= deadline) {
+                    alert("⏰ Sorry, booking time for this site has expired!");
+                    document.getElementById('regPopup').style.display = 'none';
+                    return;
+                }
+            }
 
-    // Beast Ones – manual tag OR price ≥ BEAST_MIN
-    const beastMan = products.filter(p => p.section === 'beast');
-    const beastAuto = products.filter(p => p.section !== 'beast' && parsePrice(p.price) >= BEAST_MIN);
-    const beast = [...beastMan, ...beastAuto].slice(0, SECTION_LIMIT);
+            await addDoc(collection(db, "bookings"), {
+                siteId: window.currentSiteId, uName: name, uPhone: phone, uPhone2: phone2, uPlace: place, paid: false, notes: "", fine: "", uniform: false, attendanceTime: "", uniformboy: false, subboy: false
+            });
 
-    return { recent, hot, budget, beast };
-}
+            document.getElementById('regPopup').style.display = 'none';
+            document.querySelectorAll('#regPopup input').forEach(i => i.value = "");
 
-// ============================================================
-// 4.  RENDER SECTIONS
-// ============================================================
-function renderAllSections(products) {
-    const { recent, hot, budget, beast } = categorise(products);
-    renderRow('row-recent', recent);
-    renderRow('row-hot', hot);
-    renderRow('row-budget', budget);
-    renderRow('row-beast', beast);
-}
+            // Build WhatsApp confirmation message
+            const siteName = site ? site.aSitename : 'Unknown Site';
+            const siteDate = site ? formatDisplayDate(site.aDate) : '';
+            const siteTime = site ? site.aTime : '';
+            const now = new Date();
+            const bookedAt = `${now.toLocaleDateString('en-IN')} ${now.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}`;
 
-function renderRow(rowId, products) {
-    const row = document.getElementById(rowId);
-    if (!row) return;
-    row.innerHTML = '';
+            const waMsg = `✅ *Booking Confirmation — Nearby Caters*\n\n` +
+                `📍 *Site:* ${siteName}\n` +
+                `📅 *Date:* ${siteDate}\n` +
+                `⏰ *Time:* ${siteTime}\n` +
+                `👤 *Name:* ${name}\n` +
+                `📞 *Phone:* ${phone}\n` +
+                `🕐 *Booked at:* ${bookedAt}`;
 
-    if (products.length === 0) {
-        row.innerHTML = '<span class="no-results">No IDs in this category yet.</span>';
-        return;
+            const waUrl = `https://api.whatsapp.com/send?phone=${ADMIN_WHATSAPP}&text=${encodeURIComponent(waMsg)}`;
+
+            // Show alert then redirect
+            alert("✅ Slot booked! Redirecting to WhatsApp to confirm...");
+            window.location.href = waUrl;
+        };
     }
-
-    products.forEach(p => row.appendChild(buildCard(p)));
-}
-
-// ============================================================
-// 5.  BUILD A CARD
-// ============================================================
-function buildCard(product) {
-    const isSold = product.stockOut || product.status === 'sold';
-    // Single Media Display (Reverted from Fading)
-    const firstUrl = (product.mediaUrls && product.mediaUrls[0]) || '';
-    let mediaHtml = '';
-    if (firstUrl) {
-        const isVid = (typeof firstUrl === 'string' && (firstUrl.includes('video/') || firstUrl.includes('.mp4') || firstUrl.startsWith('data:video')));
-        mediaHtml = isVid
-            ? `<video src="${firstUrl}" muted loop playsinline></video>`
-            : `<img src="${firstUrl}" alt="${product.title}">`;
-    } else {
-        mediaHtml = `<img src="https://placehold.co/400x300?text=No+Media" alt="Placeholder">`;
-    }
-
-    const card = document.createElement('div');
-    card.className = `product-card${isSold ? ' sold-out-card' : ''}`;
-    card.innerHTML = `
-        <div class="card-thumbnail">
-            ${isSold ? '<div class="sold-out-ribbon">SOLD OUT</div>' : ''}
-            ${mediaHtml}
-        </div>
-        <div class="card-info">
-            <h3 class="card-title">${product.title}</h3>
-            <p class="card-short-desc"><strong>Players:</strong> ${product.playerInfo || 'N/A'}</p>
-            <p class="card-price">${product.price || 'Contact us'}</p>
-            <div class="view-tag">view <i class="fa-solid fa-arrow-right"></i></div>
-        </div>`;
-
-    // Hover Video Preview
-    const mainMedia = card.querySelector('.card-thumbnail video');
-    if (mainMedia) {
-        card.addEventListener('mouseenter', () => mainMedia.play().catch(() => { }));
-        card.addEventListener('mouseleave', () => { mainMedia.pause(); mainMedia.currentTime = 0; });
-    }
-
-    card.addEventListener('click', () => openModal(product));
-
-    // Media Click Fullscreen (Robust Delegation)
-    card.querySelector('.card-thumbnail')?.addEventListener('click', (e) => {
-        e.stopPropagation(); // Prevent openModal
-        const media = e.currentTarget.querySelector('img, video');
-        if (media) {
-            openMediaViewer(media.src, media.tagName === 'VIDEO', product.title || '');
-        }
-    });
-
-    return card;
-}
-
-// ============================================================
-// 6.  SEARCH  (filters all section rows in real time)
-// ============================================================
-searchInput && searchInput.addEventListener('input', (e) => {
-    const term = e.target.value.toLowerCase().trim();
-    if (!term) {
-        renderAllSections(allProducts);
-        return;
-    }
-    const filtered = allProducts.filter(p =>
-        p.title?.toLowerCase().includes(term) ||
-        p.playerInfo?.toLowerCase().includes(term) ||
-        String(p.price).toLowerCase().includes(term)
-    );
-    renderAllSections(filtered);
 });
 
-// ============================================================
-// 7.  HERO CAROUSEL (Dynamic from Firebase)
-// ============================================================
-(function initHeroCarousel() {
-    const track = document.getElementById('heroTrack');
-    const dotsEl = document.getElementById('heroDots');
-    const prevBtn = document.getElementById('heroPrev');
-    const nextBtn = document.getElementById('heroNext');
-    if (!track) return;
+// --- DRAWER LOGIC ---
+window.openDrawer = (id) => {
+    currentOpenSiteId = id;
+    const s = allSites.find(x => x.id === id);
+    if (!s) return;
+    const bookings = allBookings.filter(b => b.siteId === id);
+    const isTimerExpired = s.aTimerEnd ? Date.now() >= new Date(s.aTimerEnd).getTime() : false;
+    const isClosed = s.aDate < getToday() || isTimerExpired;
 
-    let autoTimer = null;
-    let current = 0;
-    let total = 0;
+    // Create the Slots HTML
+    let slotsHTML = '';
+    const totalSlots = s.aSlots || null; // null = unlimited
+    const slotCount = totalSlots !== null ? totalSlots : bookings.length + 1; // show existing + 1 open if unlimited
+    for (let i = 0; i < slotCount; i++) {
+        const b = bookings[i];
+        let actionContent = b ?
+            `<div style="text-align:right">
+                <small>${b.uPhone.slice(0, 4)}***${b.uPhone.slice(-2)}</small><br>
+                ${!isClosed ? `<span style="color:red; cursor:pointer; font-size:0.7rem;" onclick="cancelBooking('${b.id}','${b.uPhone}')">Cancel</span>` : ''}
+            </div>` :
+            (isClosed ? `<span style="color:gray; font-size:0.8rem;">Closed</span>` :
+                `<button onclick="window.openReg('${id}')" style="background:var(--primary); color:white; border:none; padding:6px 15px; border-radius:6px; cursor:pointer;">Book</button>`);
 
-    function startAuto() {
-        clearInterval(autoTimer);
-        autoTimer = setInterval(() => { if (total > 1) goTo(current + 1); }, 5000);
+        slotsHTML += `
+            <div style="display:flex; justify-content:space-between; align-items:center; padding:12px; border-bottom:1px solid #eee;">
+                <div><strong>#${i + 1}</strong> ${b ? b.uName : 'Available'}</div>
+                ${actionContent}
+            </div>`;
+    }
+    // If unlimited, add one more open slot at the bottom if last slot is filled
+    if (totalSlots === null && bookings.length > 0 && bookings[slotCount - 1]) {
+        slotsHTML += `
+            <div style="display:flex; justify-content:space-between; align-items:center; padding:12px; border-bottom:1px solid #eee;">
+                <div><strong>#${slotCount + 1}</strong> Available</div>
+                <button onclick="window.openReg('${id}')" style="background:var(--primary); color:white; border:none; padding:6px 15px; border-radius:6px; cursor:pointer;">Book</button>
+            </div>`;
     }
 
-    function goTo(idx) {
-        if (total <= 1) {
-            track.style.transform = `translateX(0)`;
-            return;
-        }
-        current = ((idx % total) + total) % total;
-        track.style.transform = `translateX(-${current * 100}%)`;
-        dotsEl.querySelectorAll('.hero-dot').forEach((d, i) =>
-            d.classList.toggle('active', i === current)
-        );
-    }
-
-    // Show loading initially
-    track.innerHTML = `
-        <div class="hero-skeleton-card">
-            <div class="hero-skeleton-text badge"></div>
-            <div class="hero-skeleton-text title"></div>
-            <div class="hero-skeleton-text desc"></div>
-            <div class="hero-skeleton-text desc" style="width: 30%;"></div>
-        </div>
-    `;
-
-    onValue(ref(db, 'hero_slides'), (snap) => {
-        isHeroLoaded = true;
-        const data = snap.val();
-        if (!data) {
-            // Default slide if none in DB
-            renderHeroSlides([{
-                title: "Premium eFootball IDs",
-                desc: "Explore our collection of beast accounts and budget deals.",
-                link: "buy.html",
-                img: "https://placehold.co/1200x600?text=Premium+eFootball+IDs",
-                badge: "✦ WELCOME"
-            }]);
-            combineAndRender();
-            return;
+    const drawerBody = document.getElementById('drawerBody');
+    if (drawerBody) {
+        // Build media for drawer: if aImg exists show it (clickable if map link), else embed map iframe
+        let drawerMediaInner;
+        if (s.aImg) {
+            drawerMediaInner = renderMedia(s.aImg);
+        } else if (s.aMapLink) {
+            // Convert share link to embed URL
+            let embedUrl = s.aMapLink;
+            if (!embedUrl.includes('/embed')) {
+                embedUrl = `https://maps.google.com/maps?q=${encodeURIComponent(s.aPlaceName || '')}&output=embed&z=15`;
+            }
+            drawerMediaInner = `<iframe src="${embedUrl}" style="border:0; width:100%; height:100%;" allowfullscreen loading="lazy"></iframe>`;
+        } else {
+            drawerMediaInner = renderMedia('');
         }
 
-        const slidesData = Object.keys(data).map(k => ({
-            id: k,
-            ...data[k],
-            img: data[k].imageUrl || data[k].img // Fallback to 'img' for older slides
-        }));
+        const drawerMedia = s.aMapLink && s.aImg
+            ? `<a href="${s.aMapLink}" target="_blank" style="display:block;width:100%;height:100%; position:relative;">
+                   ${drawerMediaInner}
+                   <div class="glass-arrow-icon">
+                       <i class="fas fa-location-arrow"></i>
+                   </div>
+               </a>`
+            : drawerMediaInner;
 
-        // Sort by timestamp if available
-        slidesData.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+        drawerBody.innerHTML = `
+            <div class="media-container" style="border-radius:15px; margin-bottom:15px; height:200px; pointer-events:auto;">${drawerMedia}</div>
+            
+            <div style="display:flex; justify-content:space-between; align-items:start;">
+                <h2 style="margin:0; font-size:1.4rem;">${s.aSitename}</h2>
+            </div>
 
-        renderHeroSlides(slidesData);
-        combineAndRender();
-    });
+            <p style="color:var(--primary); font-weight:700; margin:8px 0;">📍 ${s.aPlaceName}</p>
+            ${s.aTeamName ? `<div style="margin-bottom:10px;"><span style="background:#f1f2f6; color:#333; padding:4px 10px; border-radius:6px; font-size:0.85rem; font-weight:600;">Team ${s.aTeamName}</span></div>` : ''}
+            
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin:15px 0;">
+                ${s.aWage ? `<div style="background:#f8f9fa; padding:10px; border-radius:10px;"><small style="color:#666">Wage</small><div style="font-weight:700">₹${s.aWage}</div></div>` : ''}
+                <div style="background:#f8f9fa; padding:10px; border-radius:10px;"><small style="color:#666">Time</small><div style="font-weight:700">${s.aTime}</div></div>
+                ${s.aGuests ? `<div style="background:#f8f9fa; padding:10px; border-radius:10px;"><small style="color:#666">Guest Count</small><div style="font-weight:700">👥 ${s.aGuests}</div></div>` : ''}
+                <div style="background:#f8f9fa; padding:10px; border-radius:10px;"><small style="color:#666">Status</small><div style="font-weight:700">${isClosed ? 'CLOSED' : (totalSlots ? `${bookings.length}/${totalSlots} Slots` : `${bookings.length} Booked (Open)`)}</div></div>
+            </div>
+            
+            <div style="background:#fff9e6; border-left:4px solid #ffcc00; padding:10px; margin-bottom:15px; border-radius:4px;">
+                <strong style="font-size:0.85rem;">Requirements:</strong><br>
+                <span style="font-size:0.9rem;">${s.aReq || 'Black pant, White shirt, Black shoe, Black belt'}</span>
+            </div>
+            ${s.aNotes ? `<div style="background:#f8f9fa; padding:15px; border-radius:10px; margin-bottom:15px;">
+                <h4 style="margin:0 0 10px 0;">📌 Notes</h4>
+                <ul style="margin:0; padding-left:20px; font-size:0.9rem; color:#444;">
+                    ${s.aNotes.split(/[,\n]+/).map(n => n.trim()).filter(n => n).map(n => `<li style="margin-bottom:6px;">${n}</li>`).join('')}
+                </ul>
+            </div>` : ''}
 
-    function renderHeroSlides(slides) {
-        track.innerHTML = '';
-        dotsEl.innerHTML = '';
-        total = slides.length;
-        current = 0;
-
-        slides.forEach((s, i) => {
-            // Slide
-            const slide = document.createElement('a');
-            slide.className = 'hero-slide';
-            if (s.link) slide.href = s.link;
-            if (s.img) slide.style.backgroundImage = `linear-gradient(rgba(0,0,0,0.4), rgba(0,0,0,0.7)), url("${s.img}")`;
-
-            slide.innerHTML = `
-                <div class="hero-slide-inner">
-                    <span class="hero-badge" style="background:var(--accent);">${s.badge || '✦ INFO'}</span>
-                    <h2>${s.title}</h2>
-                    <p>${s.desc}</p>
-                    <span class="hero-cta">Explore Now <i class="fa-solid fa-arrow-right"></i></span>
+            ${s.aTimerEnd && !isTimerExpired ? `
+            <div id="drawerCountdown" class="countdown-banner countdown-active">
+                <div class="countdown-icon">⏰</div>
+                <div class="countdown-text">
+                    <span class="countdown-label">Booking closes in</span>
+                    <span id="drawerCountdownValue" class="countdown-value">--:--:--</span>
                 </div>
-            `;
-            track.appendChild(slide);
+            </div>` : ''}
+            ${isTimerExpired && s.aTimerEnd ? `
+            <div class="countdown-banner countdown-expired">
+                <div class="countdown-icon">🔒</div>
+                <div class="countdown-text">
+                    <span class="countdown-label">Booking period has ended</span>
+                </div>
+            </div>` : ''}
 
-            // Dot
-            const dot = document.createElement('button');
-            dot.className = `hero-dot${i === 0 ? ' active' : ''}`;
-            dot.onclick = () => { clearInterval(autoTimer); goTo(i); startAuto(); };
-            dotsEl.appendChild(dot);
+            <h3 style="margin-top:20px; border-top:1px solid #eee; padding-top:15px; font-size:1.1rem;">Staff Selection</h3>
+            <div style="background:white; border-radius:10px; border:1px solid #eee; overflow:hidden;">
+                ${slotsHTML}
+            </div>
+        `;
+    }
+    document.getElementById('siteDrawer').classList.add('active');
+    document.getElementById('drawerOverlay').classList.add('active');
+    document.body.style.overflow = 'hidden';
+
+    // Start countdown timer for drawer if applicable
+    clearAllTimerIntervals();
+    if (s.aTimerEnd && !isTimerExpired) {
+        startDrawerCountdown(s.aTimerEnd);
+    }
+};
+
+window.closeDrawer = () => {
+    currentOpenSiteId = null;
+    document.getElementById('siteDrawer').classList.remove('active');
+    document.getElementById('drawerOverlay').classList.remove('active');
+    document.body.style.overflow = 'auto';
+};
+
+// --- CLIENT RENDERING ---
+window.filterSites = () => renderClient();
+window.renderClient = renderClient; // expose for onkeyup in HTML
+
+function renderClient() {
+    const grid = document.getElementById('sitesGrid');
+    if (!grid) return;
+    grid.innerHTML = '';
+    const todayStr = getToday();
+    const todayDate = new Date(todayStr);
+    const searchVal = document.getElementById('searchBar') ? document.getElementById('searchBar').value.toLowerCase().trim() : '';
+
+    const limitState = window.clientDisplayLimit || 'last_week';
+    let filteredSites = [];
+
+    allSites.forEach(s => {
+        // Search filter: null-safe field access — also searches bookings (name, phone)
+        if (searchVal) {
+            const m1 = (s.aSitename || '').toLowerCase().includes(searchVal);
+            const m2 = (s.aPlaceName || '').toLowerCase().includes(searchVal);
+            const m3 = (s.aTeamName || '').toLowerCase().includes(searchVal);
+            const siteBookings = allBookings.filter(b => b.siteId === s.id);
+            const m4 = siteBookings.some(b =>
+                (b.uName || '').toLowerCase().includes(searchVal) ||
+                (b.uPhone || '').includes(searchVal) ||
+                (b.uPhone2 || '').includes(searchVal)
+            );
+            if (!m1 && !m2 && !m3 && !m4) return; // skip non-matching
+        }
+        const siteDate = new Date(s.aDate);
+        const daysDiff = Math.floor((todayDate - siteDate) / (1000 * 3600 * 24));
+
+        // When searching, bypass date-limit — show ALL matching events
+        if (searchVal) {
+            filteredSites.push(s);
+            return;
+        }
+
+        if (daysDiff <= 0) {
+            filteredSites.push(s);
+        } else {
+            if (limitState === 'last_week' && daysDiff <= 7) filteredSites.push(s);
+            else if (limitState === 'current_month' && daysDiff <= 31) filteredSites.push(s);
+            else if (limitState === 'all') filteredSites.push(s);
+        }
+    });
+
+    const grouped = {};
+    filteredSites.forEach(s => {
+        const cat = getCategorizedLabel(s.aDate);
+        if (!grouped[cat]) grouped[cat] = [];
+        grouped[cat].push(s);
+    });
+
+    Object.keys(grouped).forEach(cat => {
+        const header = document.createElement('div');
+        header.className = 'date-section-header';
+        header.innerHTML = cat;
+        grid.appendChild(header);
+
+        const wrap = document.createElement('div');
+        wrap.className = 'sites-grid';
+
+        grouped[cat].forEach(site => {
+            const bookings = allBookings.filter(b => b.siteId === site.id);
+            const isFull = site.aSlots ? bookings.length >= site.aSlots : false; // unlimited = never full
+            const siteTimerExpired = site.aTimerEnd ? Date.now() >= new Date(site.aTimerEnd).getTime() : false;
+            const isClosed = site.aDate < todayStr || siteTimerExpired;
+            let banner = isClosed ? (siteTimerExpired && site.aDate >= todayStr ? '<div class="full-banner" style="background:linear-gradient(135deg,#e17055,#d63031)">⏰ BOOKING CLOSED</div>' : '<div class="full-banner" style="background:#000">CLOSED</div>') : (isFull ? '<div class="full-banner">FULL</div>' : '');
+
+            // Add countdown badge on card if timer is active
+            let countdownBadge = '';
+            if (site.aTimerEnd && !siteTimerExpired && !isFull && site.aDate >= todayStr) {
+                const remaining = getTimeRemaining(site.aTimerEnd);
+                if (remaining) {
+                    countdownBadge = `<div class="card-countdown-badge" data-timer-end="${site.aTimerEnd}"><span class="timer-icon-spin">⏳</span> <span class="card-timer-text">${remaining}</span></div>`;
+                }
+            }
+            const teamBadge = site.aTeamName ? `<div style="margin-top:6px;"><span style="background:#f1f2f6; color:#333; padding:3px 8px; border-radius:4px; font-size:0.75rem; display:inline-block; font-weight:600;">Team: ${site.aTeamName}</span></div>` : '';
+            // Site-card: just show image, no map link (clicking card opens drawer)
+            const mediaHTML = renderMedia(site.aImg);
+
+            const card = document.createElement('div');
+            card.className = 'site-card';
+            card.innerHTML = `
+                <div class="media-container">${mediaHTML}${banner}${countdownBadge}</div>
+                <div class="card-body">
+                    <div style="display:flex; justify-content:space-between; align-items:center;">
+                        <h3 style="margin:0; font-size:1.1rem;">${site.aSitename}</h3>
+                        ${site.aWage ? `<span class="wage-badge" style="background:var(--primary); color:white; padding:4px 8px; border-radius:6px; font-size:0.8rem;">₹${site.aWage}</span>` : ''}
+                    </div>
+                    ${teamBadge}
+                    <div style="margin-top:10px; font-size:0.85rem; color:#666; display:flex; flex-direction:column; gap:4px;">
+                        <div>📍 <strong>${site.aPlaceName}</strong></div>
+                        <div>🗓️ ${formatDisplayDate(site.aDate)} | ⏰ ${site.aTime}</div>
+                    </div>
+                </div>`;
+            card.onclick = () => window.openDrawer(site.id);
+            wrap.appendChild(card);
+        });
+        grid.appendChild(wrap);
+    });
+
+    const hasMoreBeyondLastWeek = allSites.some(s => Math.floor((todayDate - new Date(s.aDate)) / (1000 * 3600 * 24)) > 7);
+    const hasMoreBeyondMonth = allSites.some(s => Math.floor((todayDate - new Date(s.aDate)) / (1000 * 3600 * 24)) > 31);
+
+    if (limitState === 'last_week' && hasMoreBeyondLastWeek) {
+        const btn = document.createElement('button');
+        btn.innerText = "Show More (Current Month)";
+        btn.onclick = () => { window.clientDisplayLimit = 'current_month'; renderClient(); };
+        btn.style.cssText = "display:block; width:100%; max-width:300px; margin:30px auto; padding:12px; background:#fff; color:var(--primary); border:1px solid var(--primary); border-radius:50px; font-weight:bold; cursor:pointer;";
+        grid.appendChild(btn);
+    } else if (limitState === 'current_month' && hasMoreBeyondMonth) {
+        const btn = document.createElement('button');
+        btn.innerText = "Load More (All Past Events)";
+        btn.onclick = () => { window.clientDisplayLimit = 'all'; renderClient(); };
+        btn.style.cssText = "display:block; width:100%; max-width:300px; margin:30px auto; padding:12px; background:#fff; color:var(--primary); border:1px solid var(--primary); border-radius:50px; font-weight:bold; cursor:pointer;";
+        grid.appendChild(btn);
+    }
+}
+
+// --- ADMIN RENDERING ---
+window.filterAdminSites = () => renderAdmin();
+
+function renderAdmin() {
+    const container = document.getElementById('masterViewContainer');
+    if (!container) return;
+    container.innerHTML = '';
+
+    const searchVal = document.getElementById('adminSearchBar') ? document.getElementById('adminSearchBar').value.toLowerCase().trim() : '';
+
+    const grouped = {};
+    const todayStr = getToday();
+
+    allSites.forEach(s => {
+        const bookings = allBookings.filter(b => b.siteId === s.id);
+        if (searchVal) {
+            const mSite = (s.aSitename || '').toLowerCase().includes(searchVal)
+                || (s.aPlaceName || '').toLowerCase().includes(searchVal)
+                || (s.aTeamName || '').toLowerCase().includes(searchVal);
+            const mBooking = bookings.some(b =>
+                (b.uName || '').toLowerCase().includes(searchVal) ||
+                (b.uPhone || '').includes(searchVal) ||
+                (b.uPhone2 || '').includes(searchVal) ||
+                (b.uPlace || '').toLowerCase().includes(searchVal)
+            );
+            if (!mSite && !mBooking) return; // skip
+        }
+
+        const cat = getCategorizedLabel(s.aDate);
+        if (!grouped[cat]) grouped[cat] = [];
+        grouped[cat].push(s);
+    });
+
+    Object.keys(grouped).forEach(cat => {
+        const header = document.createElement('div');
+        header.className = 'date-section-header';
+        header.style.margin = "25px 0 10px 0";
+        header.innerHTML = cat;
+        container.appendChild(header);
+
+        grouped[cat].forEach(s => {
+            const bookings = allBookings.filter(b => b.siteId === s.id);
+            const card = document.createElement('div');
+            card.className = 'glass-card admin-card';
+            card.style.marginBottom = "20px";
+            card.innerHTML = `
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; flex-wrap:wrap;">
+                    <div>
+                        <div style="display:flex; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom:4px;">
+                            <h3 style="margin:0;">${s.aSitename} (${bookings.length}/${s.aSlots ? s.aSlots : '∞'})</h3>
+                            ${bookings.length > 0 && bookings.every(b => b.paid) ? '<span style="background:#00b894; color:white; padding:2px 8px; border-radius:12px; font-size:0.75rem; font-weight:bold;">✓ Cleared</span>' : ''}
+                        </div>
+                        <small style="color:#666;">📅 ${formatDisplayDate(s.aDate)} &nbsp;|&nbsp; 📍 ${s.aPlaceName || 'N/A'}</small>
+                    </div>
+                    <div>
+                        <button onclick="window.manualAddUser('${s.id}')" style="background:var(--success); color:white; border:none; padding:6px 12px; border-radius:6px; cursor:pointer; margin-right:5px; font-weight:bold;">+ Add User</button>
+                        <button onclick="startEdit('${s.id}')">Edit</button>
+                        <button onclick="deleteSite('${s.id}')" style="color:red">Del</button>
+                    </div>
+                </div>
+                <div style="overflow-x:auto; border:1px solid #eee; border-radius:8px;">
+                    <table style="width:100%; min-width:800px; border-collapse:collapse;">
+                        <thead style="background:#f4f4f4;">
+                            <tr>
+                                <th style="padding:10px; text-align:left;">Staff</th>
+                                <th style="padding:10px; text-align:left;">Place</th>
+                                <th style="padding:10px; text-align:center;">Paid</th>
+                                <th style="padding:10px; text-align:center;">Att. Time</th>
+                                <th style="padding:10px; text-align:center;">Uniform</th>
+                                <th style="padding:10px; text-align:center;">U.Boy</th>
+                                <th style="padding:10px; text-align:center;">S.Boy</th>
+                                <th style="padding:10px;">Fine</th>
+                                <th style="padding:10px;">Notes</th>
+                                <th style="padding:10px; text-align:center;">Action</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${bookings.map(b => {
+                const isEditing = window.editingRowId === b.id;
+                if (isEditing) {
+                    const draft = window.editDraft;
+                    return `
+                                    <tr style="border-bottom:1px solid #eee; background:#f9fbfe;">
+                                        <td style="padding:8px; min-width:160px;">
+                                            <input type="text" value="${draft.uName || ''}" placeholder="Name" oninput="window.editDraft.uName=this.value" style="width:100%; border:1px solid #0984e3; border-radius:4px; padding:4px 6px; font-size:0.85rem; margin-bottom:4px;">
+                                            <input type="tel" value="${draft.uPhone || ''}" placeholder="Phone" oninput="window.editDraft.uPhone=this.value" style="width:100%; border:1px solid #0984e3; border-radius:4px; padding:4px 6px; font-size:0.8rem; margin-bottom:2px;">
+                                            <input type="tel" value="${draft.uPhone2 || ''}" placeholder="Alt No" oninput="window.editDraft.uPhone2=this.value" style="width:100%; border:1px solid #0984e3; border-radius:4px; padding:4px 6px; font-size:0.78rem;">
+                                        </td>
+                                        <td style="padding:8px; min-width:110px;">
+                                            <input type="text" value="${draft.uPlace || ''}" placeholder="Place" oninput="window.editDraft.uPlace=this.value" style="width:100%; border:1px solid #0984e3; border-radius:4px; padding:4px 6px; font-size:0.85rem;">
+                                        </td>
+                                        <td style="padding:8px; text-align:center;">
+                                            <input type="checkbox" ${draft.paid ? 'checked' : ''} onchange="window.editDraft.paid=this.checked" style="transform:scale(1.2); accent-color:#00b894;">
+                                        </td>
+                                        <td style="padding:8px; text-align:center; min-width:90px;">
+                                            <input type="time" value="${draft.attendanceTime || ''}" onchange="window.editDraft.attendanceTime=this.value" style="width:100%; border:1px solid #0984e3; border-radius:4px; padding:4px; font-size:0.8rem;">
+                                        </td>
+                                        <td style="padding:8px; text-align:center;">
+                                            <input type="checkbox" ${draft.uniform ? 'checked' : ''} onchange="window.editDraft.uniform=this.checked" style="transform:scale(1.2);">
+                                        </td>
+                                        <td style="padding:8px; text-align:center;">
+                                            <input type="checkbox" ${draft.uniformboy ? 'checked' : ''} onchange="window.editDraft.uniformboy=this.checked" style="transform:scale(1.2);">
+                                        </td>
+                                        <td style="padding:8px; text-align:center;">
+                                            <input type="checkbox" ${draft.subboy ? 'checked' : ''} onchange="window.editDraft.subboy=this.checked" style="transform:scale(1.2);">
+                                        </td>
+                                        <td style="padding:8px; min-width:80px;">
+                                            <input type="text" value="${draft.fine || ''}" placeholder="Fine" oninput="window.editDraft.fine=this.value" style="width:100%; border:1px solid #0984e3; border-radius:4px; padding:4px 6px; font-size:0.85rem;">
+                                        </td>
+                                        <td style="padding:8px; min-width:120px;">
+                                            <input type="text" value="${draft.notes || ''}" placeholder="Note" oninput="window.editDraft.notes=this.value" style="width:100%; border:1px solid #0984e3; border-radius:4px; padding:4px 6px; font-size:0.85rem;">
+                                        </td>
+                                        <td style="padding:8px; text-align:center; min-width:80px;">
+                                            <button onclick="window.saveRowEdit()" style="background:#00b894; color:white; border:none; padding:5px 8px; border-radius:4px; cursor:pointer; font-weight:bold; margin-bottom:6px; width:100%; font-size:0.8rem;">Save</button>
+                                            <button onclick="window.cancelRowEdit()" style="background:#eee; color:#333; border:none; padding:5px 8px; border-radius:4px; cursor:pointer; width:100%; font-size:0.8rem;">Cancel</button>
+                                        </td>
+                                    </tr>`;
+                } else {
+                    return `
+                                    <tr style="border-bottom:1px solid #eee;">
+                                        <td style="padding:10px;">
+                                            <strong style="color:var(--text);">${b.uName || 'Unknown'}</strong><br>
+                                            <small style="color:#555;">${b.uPhone || '-'}</small>
+                                            ${b.uPhone2 ? `<br><small style="color:gray;">Alt: ${b.uPhone2}</small>` : ''}
+                                        </td>
+                                        <td style="padding:10px; font-size:0.9rem;">${b.uPlace || '-'}</td>
+                                        <td style="padding:10px; text-align:center;">
+                                            <input type="checkbox" disabled ${b.paid ? 'checked' : ''} style="transform:scale(1.2); accent-color:#00b894; opacity:1;">
+                                        </td>
+                                        <td style="padding:10px; text-align:center; font-size:0.9rem; font-weight:bold; color:var(--primary);">${formatAMPM(b.attendanceTime) || '-'}</td>
+                                        <td style="padding:10px; text-align:center;">
+                                            <input type="checkbox" disabled ${b.uniform ? 'checked' : ''}>
+                                        </td>
+                                        <td style="padding:10px; text-align:center;">
+                                            <input type="checkbox" disabled ${b.uniformboy ? 'checked' : ''}>
+                                        </td>
+                                        <td style="padding:10px; text-align:center;">
+                                            <input type="checkbox" disabled ${b.subboy ? 'checked' : ''}>
+                                        </td>
+                                        <td style="padding:10px; font-size:0.85rem; color:#d63031;">${b.fine ? b.fine : '<span style="color:#ccc;">-</span>'}</td>
+                                        <td style="padding:10px; font-size:0.85rem; color:#444;">${b.notes ? b.notes : '<span style="color:#ccc;">-</span>'}</td>
+                                        <td style="padding:8px; text-align:center; min-width:80px;">
+                                            <button onclick="window.startRowEdit('${b.id}')" style="background:var(--primary); color:white; border:none; padding:5px 12px; border-radius:4px; cursor:pointer; margin-bottom:8px; font-size:0.8rem; width:100%;">Edit</button>
+                                            <span style="color:red; cursor:pointer; font-size:0.8rem; font-weight:600; display:block;" onclick="deleteBooking('${b.id}')">Remove</span>
+                                        </td>
+                                    </tr>`;
+                }
+            }).join('')}
+                        </tbody>
+                    </table>
+                </div>
+                <button onclick="window.copyStaffList('${s.id}', '${(s.aSitename || '').replace(/'/g, "\\'")}')"
+                    style="margin-top:12px; background:#f1f2f6; color:#333; border:1px solid #ddd; padding:8px 18px; border-radius:8px; cursor:pointer; font-weight:600; font-size:0.85rem; display:flex; align-items:center; gap:6px;">
+                    📋 Copy Staff List
+                </button>`;
+            container.appendChild(card);
+        });
+    });
+}
+
+// --- GLOBAL ACCESSORS ---
+window.startRowEdit = (id) => {
+    const b = allBookings.find(x => x.id === id);
+    if (!b) return;
+    window.editingRowId = id;
+    window.editDraft = { uName: b.uName, uPhone: b.uPhone, uPhone2: b.uPhone2 || '', uPlace: b.uPlace, paid: !!b.paid, notes: b.notes || '', attendanceTime: b.attendanceTime || '', uniform: !!b.uniform, fine: b.fine || '', uniformboy: !!b.uniformboy, subboy: !!b.subboy };
+    renderAdmin();
+};
+
+window.cancelRowEdit = () => {
+    window.editingRowId = null;
+    window.editDraft = null;
+    renderAdmin();
+};
+
+window.saveRowEdit = async () => {
+    if (!window.editingRowId) return;
+    const id = window.editingRowId;
+    const data = window.editDraft;
+    window.editingRowId = null;
+    window.editDraft = null;
+    await window.updateBooking(id, data);
+};
+
+window.copyStaffList = (siteId, siteName) => {
+    const site = allSites.find(s => s.id === siteId);
+    const bookings = allBookings.filter(b => b.siteId === siteId);
+    if (!bookings.length) { alert('No staff booked yet.'); return; }
+    
+    const sLocation = site && site.aPlaceName ? site.aPlaceName : 'N/A';
+    const sTime = site && site.aTime ? site.aTime : 'N/A';
+    const sMap = site && site.aMapLink ? site.aMapLink : 'N/A';
+
+    let text = `Site: ${siteName}\nLocation: ${sLocation}\nTime: ${sTime}\n`;
+    if (sMap !== 'N/A') text += `Map: ${sMap}\n`;
+    text += `\nStaff List:\n`;
+
+    bookings.forEach((b, i) => {
+        let row = `${i + 1}. ${b.uName || 'Unknown'} - ${b.uPhone || '-'}`;
+        if (b.uPhone2) row += ` (Alt: ${b.uPhone2})`;
+        if (b.uPlace) row += ` - ${b.uPlace}`;
+        
+        let details = [];
+        if (b.attendanceTime) details.push(`Att: ${formatAMPM(b.attendanceTime)}`);
+        if (b.uniform) details.push(`Uniform`);
+        if (b.uniformboy) details.push(`U.Boy`);
+        if (b.subboy) details.push(`S.Boy`);
+        if (b.paid) details.push(`Paid`);
+        if (b.fine) details.push(`Fine: ${b.fine}`);
+        if (b.notes && b.notes !== "Added by Admin") details.push(`Notes: ${b.notes}`);
+        
+        if (details.length > 0) {
+            row += `\n   ↳ ${details.join(' | ')}`;
+        }
+        text += row + `\n`;
+    });
+    text += `\nTotal: ${bookings.length} staff`;
+
+    navigator.clipboard.writeText(text).then(() => alert('Staff list copied!')).catch(() => {
+        const el = document.createElement('textarea');
+        el.value = text;
+        document.body.appendChild(el);
+        el.select();
+        document.execCommand('copy');
+        document.body.removeChild(el);
+        alert('Staff list copied!');
+    });
+};
+
+window.checkPin = () => {
+    const pin = document.getElementById('pinInput').value;
+    if (pin === "8078at") {
+        document.getElementById('authOverlay').style.display = 'none';
+        if (document.getElementById('adminMain')) {
+            document.getElementById('adminMain').style.display = 'block';
+            renderAdmin();
+        }
+        if (document.getElementById('attendanceMain')) {
+            document.getElementById('attendanceMain').style.display = 'block';
+            renderAttendance();
+        }
+    } else { alert("Wrong PIN"); }
+};
+
+window.openReg = (id) => { window.currentSiteId = id; document.getElementById('regPopup').style.display = 'flex'; };
+window.updateBooking = async (id, data) => await updateDoc(doc(db, "bookings", id), data);
+window.deleteBooking = async (id) => { if (confirm("Remove?")) await deleteDoc(doc(db, "bookings", id)); };
+window.deleteSite = async (id) => { if (confirm("Delete Site?")) await deleteDoc(doc(db, "sites", id)); };
+window.cancelBooking = async (id, phone) => { if (prompt("Enter WhatsApp number to confirm:") === phone) await deleteDoc(doc(db, "bookings", id)); };
+
+window.manualAddUser = async (siteId) => {
+    const name = prompt("Enter Staff Name:");
+    if (!name) return;
+    const phone = prompt("Enter Contact Number:");
+    if (!phone) return;
+    const place = prompt("Enter Place/Location (Optional):");
+    await addDoc(collection(db, "bookings"), {
+        siteId: siteId, uName: name, uPhone: phone, uPhone2: "", uPlace: place || "", paid: false, notes: "Added by Admin", attendanceTime: "", uniform: false, fine: "", uniformboy: false, subboy: false
+    });
+};
+
+window.publishSite = async () => {
+    const slotsVal = document.getElementById('aSlots').value;
+    if (!slotsVal || parseInt(slotsVal) < 1) return alert('Slots field is required!');
+
+    // Calculate timer end from duration inputs
+    const timerHours = parseInt(document.getElementById('aTimerHours')?.value) || 0;
+    const timerMins = parseInt(document.getElementById('aTimerMins')?.value) || 0;
+    let timerEndValue = '';
+    if (timerHours > 0 || timerMins > 0) {
+        const endTime = new Date(Date.now() + (timerHours * 3600000) + (timerMins * 60000));
+        timerEndValue = endTime.toISOString();
+    }
+
+    const data = {
+        aSitename: document.getElementById('aSitename').value,
+        aDate: document.getElementById('aDate').value,
+        aPlaceName: document.getElementById('aPlaceName').value,
+        aWage: document.getElementById('aWage').value || '',
+        aSlots: parseInt(slotsVal),
+        aTime: document.getElementById('aTime').value,
+        aGuests: document.getElementById('aGuests').value || '',
+        aMapLink: document.getElementById('aMapLink').value,
+        aImg: document.getElementById('aImg').value,
+        aTeamName: document.getElementById('aTeamName') ? document.getElementById('aTeamName').value : '',
+        aReq: document.getElementById('aReq') ? (document.getElementById('aReq').value || 'Black pant, white shirt, black shoe, black belt') : 'Black pant, white shirt, black shoe, black belt',
+        aNotes: document.getElementById('aNotes') ? document.getElementById('aNotes').value : '',
+        aTimerEnd: timerEndValue
+    };
+    const id = document.getElementById('editId').value;
+    if (id) await updateDoc(doc(db, "sites", id), data);
+    else await addDoc(collection(db, "sites"), data);
+
+    // Clear form without reload
+    document.getElementById('editId').value = "";
+    document.querySelectorAll('.stunning-input').forEach(i => i.value = "");
+    if (document.getElementById('aReq')) document.getElementById('aReq').value = "";
+    if (document.getElementById('aNotes')) document.getElementById('aNotes').value = "";
+    if (document.getElementById('aTimerHours')) document.getElementById('aTimerHours').value = "";
+    if (document.getElementById('aTimerMins')) document.getElementById('aTimerMins').value = "";
+    document.getElementById('submitBtn').innerText = "Publish Site";
+    alert("Saved Successfully!");
+};
+
+window.startEdit = (id) => {
+    const s = allSites.find(x => x.id === id);
+    document.getElementById('editId').value = s.id;
+    document.getElementById('aSitename').value = s.aSitename;
+    document.getElementById('aDate').value = s.aDate;
+    document.getElementById('aPlaceName').value = s.aPlaceName;
+    document.getElementById('aWage').value = s.aWage;
+    document.getElementById('aSlots').value = s.aSlots;
+    document.getElementById('aTime').value = s.aTime;
+    document.getElementById('aGuests').value = s.aGuests;
+    document.getElementById('aMapLink').value = s.aMapLink;
+    document.getElementById('aImg').value = s.aImg;
+    if (document.getElementById('aTeamName')) document.getElementById('aTeamName').value = s.aTeamName || '';
+    if (document.getElementById('aReq')) document.getElementById('aReq').value = s.aReq || '';
+    if (document.getElementById('aNotes')) document.getElementById('aNotes').value = s.aNotes || '';
+    // Show remaining time in timer fields when editing
+    if (s.aTimerEnd && document.getElementById('aTimerHours')) {
+        const remaining = new Date(s.aTimerEnd).getTime() - Date.now();
+        if (remaining > 0) {
+            document.getElementById('aTimerHours').value = Math.floor(remaining / 3600000);
+            document.getElementById('aTimerMins').value = Math.floor((remaining % 3600000) / 60000);
+        } else {
+            document.getElementById('aTimerHours').value = '';
+            document.getElementById('aTimerMins').value = '';
+        }
+    } else {
+        if (document.getElementById('aTimerHours')) document.getElementById('aTimerHours').value = '';
+        if (document.getElementById('aTimerMins')) document.getElementById('aTimerMins').value = '';
+    }
+    document.getElementById('submitBtn').innerText = "Update Site";
+    window.scrollTo(0, 0);
+};
+
+// --- ATTENDANCE RENDERING ---
+window.filterAttendanceSites = () => renderAttendance();
+
+function renderAttendance() {
+    const container = document.getElementById('attendanceViewContainer');
+    if (!container) return;
+    container.innerHTML = '';
+
+    const searchVal = document.getElementById('attendanceSearchBar') ? document.getElementById('attendanceSearchBar').value.toLowerCase().trim() : '';
+    const todayStr = getToday();
+    const todayDate = new Date(todayStr);
+
+    const limitState = window.attendanceDisplayLimit || 'last_week';
+    let filteredSites = [];
+
+    allSites.forEach(s => {
+        const bookings = allBookings.filter(b => b.siteId === s.id);
+        if (searchVal) {
+            const mSite = (s.aSitename || '').toLowerCase().includes(searchVal)
+                || (s.aPlaceName || '').toLowerCase().includes(searchVal)
+                || (s.aTeamName || '').toLowerCase().includes(searchVal);
+            const mBooking = bookings.some(b =>
+                (b.uName || '').toLowerCase().includes(searchVal) ||
+                (b.uPhone || '').includes(searchVal) ||
+                (b.uPhone2 || '').includes(searchVal) ||
+                (b.uPlace || '').toLowerCase().includes(searchVal)
+            );
+            if (!mSite && !mBooking) return; // skip
+            filteredSites.push(s);
+            return;
+        }
+
+        const siteDate = new Date(s.aDate);
+        const daysDiff = Math.floor((todayDate - siteDate) / (1000 * 3600 * 24));
+
+        if (daysDiff <= 0) {
+            filteredSites.push(s);
+        } else {
+            if (limitState === 'last_week' && daysDiff <= 7) filteredSites.push(s);
+            else if (limitState === 'current_month' && daysDiff <= 31) filteredSites.push(s);
+            else if (limitState === 'all') filteredSites.push(s);
+        }
+    });
+
+    const grouped = {};
+    filteredSites.forEach(s => {
+        const cat = getCategorizedLabel(s.aDate);
+        if (!grouped[cat]) grouped[cat] = [];
+        grouped[cat].push(s);
+    });
+
+    Object.keys(grouped).forEach(cat => {
+        const header = document.createElement('div');
+        header.className = 'date-section-header';
+        header.style.margin = "25px 0 10px 0";
+        header.innerHTML = cat;
+        container.appendChild(header);
+
+        grouped[cat].forEach(s => {
+            const bookings = allBookings.filter(b => b.siteId === s.id);
+            const card = document.createElement('div');
+            card.className = 'glass-card admin-card';
+            card.style.marginBottom = "20px";
+            card.innerHTML = `
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; flex-wrap:wrap;">
+                    <div>
+                        <h3 style="margin:0;">${s.aSitename} (${bookings.length}/${s.aSlots ? s.aSlots : '∞'})</h3>
+                        <small>📅 ${formatDisplayDate(s.aDate)}</small>
+                    </div>
+                </div>
+                <div style="overflow-x:auto; border:1px solid #eee; border-radius:8px;">
+                    <table style="width:100%; min-width:600px; border-collapse:collapse;">
+                        <thead style="background:#f4f4f4;">
+                            <tr>
+                                <th style="padding:10px; text-align:left;">Staff</th>
+                                <th style="padding:10px; text-align:center;">Att. Time</th>
+                                <th style="padding:10px; text-align:center;">Att. Close</th>
+                                <th style="padding:10px; text-align:center;">Uniform</th>
+                                <th style="padding:10px; text-align:center;">U.Boy</th>
+                                <th style="padding:10px; text-align:center;">S.Boy</th>
+                                <th style="padding:10px;">Fine</th>
+                                <th style="padding:10px; text-align:center;">Action</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${bookings.map(b => {
+                const isEditing = window.editingAttendanceRowId === b.id;
+                if (isEditing) {
+                    const draft = window.editAttendanceDraft;
+                    return `
+                                    <tr style="border-bottom:1px solid #eee; background:#f9fbfe;">
+                                        <td style="padding:10px;">
+                                            <strong style="color:var(--text);">${b.uName || 'Unknown'}</strong><br>
+                                            <small style="color:#555;">${b.uPhone || '-'}</small>
+                                        </td>
+                                        <td style="padding:8px; text-align:center; min-width:100px;">
+                                            <input type="time" value="${draft.attendanceTime || ''}" onchange="window.editAttendanceDraft.attendanceTime=this.value" style="width:100%; border:1px solid #0984e3; border-radius:4px; padding:6px; font-size:0.9rem;">
+                                        </td>
+                                        <td style="padding:8px; text-align:center; min-width:100px;">
+                                            <input type="time" value="${draft.attendanceCloseTime || ''}" onchange="window.editAttendanceDraft.attendanceCloseTime=this.value" style="width:100%; border:1px solid #0984e3; border-radius:4px; padding:6px; font-size:0.9rem;">
+                                        </td>
+                                        <td style="padding:8px; text-align:center;">
+                                            <input type="checkbox" ${draft.uniform ? 'checked' : ''} onchange="window.editAttendanceDraft.uniform=this.checked" style="transform:scale(1.5);">
+                                        </td>
+                                        <td style="padding:8px; text-align:center;">
+                                            <input type="checkbox" ${draft.uniformboy ? 'checked' : ''} onchange="window.editAttendanceDraft.uniformboy=this.checked" style="transform:scale(1.5);">
+                                        </td>
+                                        <td style="padding:8px; text-align:center;">
+                                            <input type="checkbox" ${draft.subboy ? 'checked' : ''} onchange="window.editAttendanceDraft.subboy=this.checked" style="transform:scale(1.5);">
+                                        </td>
+                                        <td style="padding:8px; min-width:100px;">
+                                            <input type="text" value="${draft.fine || ''}" placeholder="Fine Amount/Note" oninput="window.editAttendanceDraft.fine=this.value" style="width:100%; border:1px solid #0984e3; border-radius:4px; padding:6px; font-size:0.9rem;">
+                                        </td>
+                                        <td style="padding:8px; text-align:center; min-width:80px;">
+                                            <button onclick="window.saveAttendanceRowEdit()" style="background:#00b894; color:white; border:none; padding:6px 12px; border-radius:4px; cursor:pointer; font-weight:bold; margin-bottom:6px; width:100%; font-size:0.85rem;">Save</button>
+                                            <button onclick="window.cancelAttendanceRowEdit()" style="background:#eee; color:#333; border:none; padding:6px 12px; border-radius:4px; cursor:pointer; width:100%; font-size:0.85rem;">Cancel</button>
+                                        </td>
+                                    </tr>`;
+                } else {
+                    return `
+                                    <tr style="border-bottom:1px solid #eee;">
+                                        <td style="padding:10px;">
+                                            <strong style="color:var(--text);">${b.uName || 'Unknown'}</strong><br>
+                                            <small style="color:#555;">${b.uPhone || '-'}</small>
+                                        </td>
+                                        <td style="padding:10px; text-align:center; font-size:1rem; font-weight:bold; color:var(--primary);">${formatAMPM(b.attendanceTime) || '<span style="color:#ccc;font-weight:normal;font-size:0.85rem;">Pending</span>'}</td>
+                                        <td style="padding:10px; text-align:center; font-size:1rem; font-weight:bold; color:var(--primary);">${formatAMPM(b.attendanceCloseTime) || '<span style="color:#ccc;font-weight:normal;font-size:0.85rem;">Pending</span>'}</td>
+                                        <td style="padding:10px; text-align:center;">
+                                            <input type="checkbox" disabled ${b.uniform ? 'checked' : ''} style="transform:scale(1.2);">
+                                        </td>
+                                        <td style="padding:10px; text-align:center;">
+                                            <input type="checkbox" disabled ${b.uniformboy ? 'checked' : ''} style="transform:scale(1.2);">
+                                        </td>
+                                        <td style="padding:10px; text-align:center;">
+                                            <input type="checkbox" disabled ${b.subboy ? 'checked' : ''} style="transform:scale(1.2);">
+                                        </td>
+                                        <td style="padding:10px; font-size:0.9rem; color:#d63031; font-weight:bold;">${b.fine ? b.fine : '<span style="color:#ccc;font-weight:normal;">-</span>'}</td>
+                                        <td style="padding:10px; text-align:center;">
+                                            <button onclick="window.startAttendanceRowEdit('${b.id}')" style="background:${(b.attendanceTime && b.attendanceCloseTime) ? '#f1f2f6' : 'var(--primary)'}; color:${(b.attendanceTime && b.attendanceCloseTime) ? '#333' : 'white'}; border:none; padding:8px 16px; border-radius:6px; cursor:pointer; font-weight:bold; font-size:0.85rem; width:100%; border:1px solid ${(b.attendanceTime && b.attendanceCloseTime) ? '#ddd' : 'transparent'};">${(b.attendanceTime && b.attendanceCloseTime) ? 'Edit' : 'Mark Att.'}</button>
+                                        </td>
+                                    </tr>`;
+                }
+            }).join('')}
+                        </tbody>
+                    </table>
+                </div>`;
+                    container.appendChild(card);
+                });
         });
 
-        track.style.transform = 'translateX(0)';
-        if (total > 1) startAuto();
+        const hasMoreBeyondLastWeek = allSites.some(s => Math.floor((todayDate - new Date(s.aDate)) / (1000 * 3600 * 24)) > 7);
+        const hasMoreBeyondMonth = allSites.some(s => Math.floor((todayDate - new Date(s.aDate)) / (1000 * 3600 * 24)) > 31);
+
+        if (!searchVal) {
+            if (limitState === 'last_week' && hasMoreBeyondLastWeek) {
+                const btn = document.createElement('button');
+                btn.innerText = "Show More (Current Month)";
+                btn.onclick = () => { window.attendanceDisplayLimit = 'current_month'; renderAttendance(); };
+                btn.style.cssText = "display:block; width:100%; max-width:300px; margin:30px auto; padding:12px; background:#fff; color:var(--primary); border:1px solid var(--primary); border-radius:50px; font-weight:bold; cursor:pointer;";
+                container.appendChild(btn);
+            } else if (limitState === 'current_month' && hasMoreBeyondMonth) {
+                const btn = document.createElement('button');
+                btn.innerText = "Load More (All Past Events)";
+                btn.onclick = () => { window.attendanceDisplayLimit = 'all'; renderAttendance(); };
+                btn.style.cssText = "display:block; width:100%; max-width:300px; margin:30px auto; padding:12px; background:#fff; color:var(--primary); border:1px solid var(--primary); border-radius:50px; font-weight:bold; cursor:pointer;";
+                container.appendChild(btn);
+            }
+        }
     }
 
-    prevBtn?.addEventListener('click', () => { clearInterval(autoTimer); goTo(current - 1); startAuto(); });
-    nextBtn?.addEventListener('click', () => { clearInterval(autoTimer); goTo(current + 1); startAuto(); });
+window.startAttendanceRowEdit = (id) => {
+            const b = allBookings.find(x => x.id === id);
+            if (!b) return;
+            window.editingAttendanceRowId = id;
 
-    // Touch swipe
-    let touchStartX = 0;
-    track.addEventListener('touchstart', e => { touchStartX = e.touches[0].clientX; }, { passive: true });
-    track.addEventListener('touchend', e => {
-        const dx = e.changedTouches[0].clientX - touchStartX;
-        if (Math.abs(dx) > 40) {
-            clearInterval(autoTimer);
-            dx < 0 ? goTo(current + 1) : goTo(current - 1);
-            startAuto();
-        }
-    }, { passive: true });
-})();
+            // Auto-fill current time if attendance hasn't been marked yet
+            let attTime = b.attendanceTime;
+            let attCloseTime = b.attendanceCloseTime;
+            const now = new Date();
+            const currentTimeStr = String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0');
 
-// ============================================================
-// 8.  MODAL
-// ============================================================
-let currentSlideIndex = 0;
+            if (!attTime) {
+                attTime = currentTimeStr;
+            } else if (!attCloseTime) {
+                attCloseTime = currentTimeStr;
+            }
 
-function openModal(product) {
-    document.getElementById('modalTitle').innerText = product.title;
-    document.getElementById('modalPrice').innerText = product.price || 'Contact us';
-    document.getElementById('modalPlayerInfo').innerText = product.playerInfo || 'No details provided.';
-
-    // WhatsApp button
-    const waBtn = document.getElementById('modalWaLink');
-    waBtn.style.display = product.stockOut ? 'none' : 'inline-block';
-    waBtn.removeAttribute('href');
-    waBtn.onclick = (e) => { e.preventDefault(); handleWa(product); };
-
-    // Build carousel
-    carouselEl.innerHTML = '';
-    currentSlideIndex = 0;
-    const urls = product.mediaUrls || [];
-
-    urls.forEach((url, i) => {
-        const isVid = /\.(mp4|mov|webm)/i.test(url);
-        const slide = document.createElement('div');
-        slide.className = `carousel-slide${i === 0 ? ' active' : ''}`;
-        slide.innerHTML = isVid
-            ? `<video src="${url}" controls controlsList="nodownload" playsinline></video>`
-            : `<img src="${url}" alt="Slide ${i + 1}" style="cursor:zoom-in">`;
-
-        slide.onclick = (e) => {
-            e.stopPropagation();
-            openMediaViewer(url, isVid, product.title || '');
+            window.editAttendanceDraft = { attendanceTime: attTime || '', attendanceCloseTime: attCloseTime || '', uniform: !!b.uniform, fine: b.fine || '', uniformboy: !!b.uniformboy, subboy: !!b.subboy };
+            renderAttendance();
         };
-        carouselEl.appendChild(slide);
-    });
 
-    modal.classList.add('active');
-    document.body.style.overflow = 'hidden';
-}
+    window.cancelAttendanceRowEdit = () => {
+        window.editingAttendanceRowId = null;
+        window.editAttendanceDraft = null;
+        renderAttendance();
+    };
 
-function closeModal() {
-    modal.classList.remove('active');
-    document.body.style.overflow = '';
-    carouselEl.querySelectorAll('video').forEach(v => v.pause());
-}
+    window.saveAttendanceRowEdit = async () => {
+        if (!window.editingAttendanceRowId) return;
+        const id = window.editingAttendanceRowId;
+        const data = window.editAttendanceDraft;
+        window.editingAttendanceRowId = null;
+        window.editAttendanceDraft = null;
+        await window.updateBooking(id, data);
+    };
 
-closeBtn && closeBtn.addEventListener('click', closeModal);
-modal && modal.addEventListener('click', e => { if (e.target === modal) closeModal(); });
+    // --- COUNTDOWN TIMER HELPERS ---
+    function clearAllTimerIntervals() {
+        activeTimerIntervals.forEach(id => clearInterval(id));
+        activeTimerIntervals = [];
+    }
 
-document.getElementById('prevBtn') && document.getElementById('prevBtn').addEventListener('click', () => changeSlide(-1));
-document.getElementById('nextBtn') && document.getElementById('nextBtn').addEventListener('click', () => changeSlide(1));
+    function getTimeRemaining(timerEnd) {
+        const diff = new Date(timerEnd).getTime() - Date.now();
+        if (diff <= 0) return null;
+        const h = Math.floor(diff / 3600000);
+        const m = Math.floor((diff % 3600000) / 60000);
+        const sec = Math.floor((diff % 60000) / 1000);
+        if (h > 0) return `${h}h ${m}m ${sec}s`;
+        if (m > 0) return `${m}m ${sec}s`;
+        return `${sec}s`;
+    }
 
-function changeSlide(dir) {
-    const slides = carouselEl.querySelectorAll('.carousel-slide');
-    if (slides.length <= 1) return;
-    slides[currentSlideIndex].classList.remove('active');
-    const vid = slides[currentSlideIndex].querySelector('video');
-    if (vid) vid.pause();
-    currentSlideIndex = (currentSlideIndex + dir + slides.length) % slides.length;
-    slides[currentSlideIndex].classList.add('active');
-}
+    function startDrawerCountdown(timerEnd) {
+        const el = document.getElementById('drawerCountdownValue');
+        if (!el) return;
+        const tick = () => {
+            const remaining = getTimeRemaining(timerEnd);
+            if (!remaining) {
+                el.textContent = 'EXPIRED';
+                clearAllTimerIntervals();
+                // Re-render drawer to show locked state
+                if (currentOpenSiteId) window.openDrawer(currentOpenSiteId);
+                return;
+            }
+            el.textContent = remaining;
+            // Add urgency class when < 5 min
+            const diff = new Date(timerEnd).getTime() - Date.now();
+            const banner = document.getElementById('drawerCountdown');
+            if (banner) {
+                if (diff < 300000) banner.classList.add('countdown-urgent');
+                else banner.classList.remove('countdown-urgent');
+            }
+        };
+        tick();
+        const intervalId = setInterval(tick, 1000);
+        activeTimerIntervals.push(intervalId);
+    }
 
-// ============================================================
-// 9.  WHATSAPP REDIRECT
-// ============================================================
-function handleWa(product) {
-    const num = atob(encodedPhone);
-    const msg = `Hello! I want to buy the ID: ${product.title} for ${product.price}`;
-    window.open(`https://wa.me/${num}?text=${encodeURIComponent(msg)}`, '_blank');
-}
-
-// ============================================================
-// 10.  LOAD MORE → BUY PAGE
-// ============================================================
-window.goToBuy = () => { window.location.href = 'buy.html'; };
+    // Live-update card countdown badges every second (no full re-render)
+    setInterval(() => {
+        document.querySelectorAll('.card-countdown-badge[data-timer-end]').forEach(badge => {
+            const timerEnd = badge.getAttribute('data-timer-end');
+            const remaining = getTimeRemaining(timerEnd);
+            const textEl = badge.querySelector('.card-timer-text');
+            if (!remaining) {
+                // Timer expired — re-render to show locked state
+                if (document.getElementById('sitesGrid')) renderClient();
+                return;
+            }
+            if (textEl) textEl.textContent = remaining;
+        });
+    }, 1000);
