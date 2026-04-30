@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Attendance | Nearby Caters</title>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800&display=swap"
+        rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+    <div id="authOverlay"
+        style="position:fixed; inset:0; background:#f4f7f6; z-index:9999; display:flex; align-items:center; justify-content:center;">
+        <div style="background:#fff; padding:40px; border-radius:20px; text-align:center; border:1px solid #ddd;">
+            <h2>Master Login</h2>
+            <input type="password" id="pinInput" placeholder="••••"
+                style="text-align:center; font-size:2rem; width:150px; border:none; border-bottom:2px solid var(--primary); outline:none;">
+            <br><br>
+            <button onclick="checkPin()"
+                style="background:var(--primary); color:white; border:none; padding:12px 30px; border-radius:10px; cursor:pointer;">Unlock</button>
+        </div>
+    </div>
+
+    <div class="container" id="attendanceMain" style="display:none;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px; flex-wrap:wrap; gap:10px;">
+            <h1 style="margin:0;">Attendance Marker</h1>
+            <input type="text" id="attendanceSearchBar" placeholder="Search event, place, name, phone..."
+                onkeyup="window.filterAttendanceSites()" class="stunning-input" style="max-width:340px; border-radius:50px;">
+        </div>
+
+        <div id="attendanceViewContainer"></div>
+    </div>
+    <script type="module" src="app.js"></script>
+</body>
+
+</html>
